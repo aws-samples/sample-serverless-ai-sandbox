@@ -27,7 +27,7 @@ format:
 test: test-python test-typescript
 
 test-python:
-	uv run pytest
+	uv run pytest --timeout=120
 
 test-typescript:
 	npm test --prefix sdk/typescript
