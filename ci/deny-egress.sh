@@ -11,6 +11,10 @@
 #
 # Loopback stays reachable, because the offline suite talks to local stubs and a local
 # DynamoDB.
+#
+# Connections established before the denial (e.g. the GitHub Actions runner's heartbeat)
+# are allowed to continue, so the runner does not lose communication with the server.
+# New outbound connections from the test suite are still rejected.
 
 set -euo pipefail
 
@@ -31,11 +35,13 @@ done
 iptables --policy OUTPUT ACCEPT
 iptables --flush OUTPUT
 iptables --append OUTPUT --out-interface lo --jump ACCEPT
+iptables --append OUTPUT --match state --state ESTABLISHED,RELATED --jump ACCEPT
 iptables --append OUTPUT --jump REJECT --reject-with icmp-admin-prohibited
 
 ip6tables --policy OUTPUT ACCEPT
 ip6tables --flush OUTPUT
 ip6tables --append OUTPUT --out-interface lo --jump ACCEPT
+ip6tables --append OUTPUT --match state --state ESTABLISHED,RELATED --jump ACCEPT
 ip6tables --append OUTPUT --jump REJECT --reject-with icmp6-adm-prohibited
 
 # The denial is verified rather than assumed, which is the whole point of the script.
