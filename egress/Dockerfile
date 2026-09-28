@@ -22,4 +22,4 @@ EXPOSE 443
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
   CMD ["python", "-c", "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',443)); s.close()"]
 
-CMD ["python", "egress/server.py"]
+CMD ["python", "-m", "egress.server"]
