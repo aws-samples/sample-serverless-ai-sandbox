@@ -74,6 +74,8 @@ minversion = "9.1"
 # No testpaths: tests live both under tests/ and alongside the module they cover, and a
 # fixed list here would silently drop the co-located ones.
 addopts = "-ra --strict-markers --strict-config"
+# mount_test.py is a standalone Flask debug tool for S3 Files mounts, not part of the suite.
+collect_ignore_glob = ["runtime/mount_test.py"]
 xfail_strict = true
 # No single test in the offline suite is a long-running one; a hang is a failure.
 timeout = 300
