@@ -10,8 +10,12 @@ USER proxyuser
 
 WORKDIR /app
 COPY --chown=proxyuser:proxyuser egress/ ./egress/
+# Minimal control_plane subset: only quarantine.py (DenialReason enum).
+# The full allocation/ directory is NOT copied — its __init__.py imports
+# ledger.py which pulls in providers/ and state/ (not in this image).
 COPY --chown=proxyuser:proxyuser control_plane/__init__.py ./control_plane/
-COPY --chown=proxyuser:proxyuser control_plane/allocation/ ./control_plane/allocation/
+RUN mkdir -p control_plane/allocation && touch control_plane/allocation/__init__.py
+COPY --chown=proxyuser:proxyuser control_plane/allocation/quarantine.py ./control_plane/allocation/quarantine.py
 
 EXPOSE 443
 

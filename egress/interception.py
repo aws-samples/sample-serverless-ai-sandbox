@@ -120,7 +120,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Final, Protocol, assert_never, runtime_checkable
 
-from control_plane.allocation import DenialReason
+from control_plane.allocation.quarantine import DenialReason
 from egress.decision import Decision, decide
 from egress.policy import (
     EGRESS_TLS_PORT,

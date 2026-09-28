@@ -58,7 +58,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final, assert_never
 
-from control_plane.allocation import DenialReason
+from control_plane.allocation.quarantine import DenialReason
 from egress.policy import (
     DefaultAction,
     Destination,
