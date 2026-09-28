@@ -1,0 +1,5 @@
+[bandit]
+# B108: /tmp usage is by design - MicroVM sandbox working directory
+# B110: try/except/pass in cleanup paths is intentional
+# B104: binding 0.0.0.0 is intentional in proxy (Fargate) and runtime (MicroVM)
+skips = B108,B110,B104

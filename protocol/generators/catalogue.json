@@ -1,0 +1,561 @@
+{
+  "$comment": "GENERATED from protocol/messages.yaml by protocol/generators/export_catalogue.py. Do not edit; edit messages.yaml.",
+  "schemaVersion": 1,
+  "protocol": {
+    "version": 1,
+    "supportedMin": 1,
+    "supportedMax": 1
+  },
+  "envelope": {
+    "fields": [
+      {
+        "key": 1,
+        "name": "v",
+        "type": "uint",
+        "range": {
+          "min": "0",
+          "max": "18446744073709551615"
+        }
+      },
+      {
+        "key": 2,
+        "name": "t",
+        "type": "text"
+      },
+      {
+        "key": 3,
+        "name": "id",
+        "type": "bytes"
+      },
+      {
+        "key": 4,
+        "name": "b",
+        "type": "map"
+      }
+    ]
+  },
+  "messages": [
+    {
+      "t": "exec.request",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.1"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "argv",
+          "type": "list",
+          "items": {
+            "type": "bytes",
+            "carries": "name"
+          }
+        },
+        {
+          "key": 2,
+          "name": "cwd",
+          "type": "bytes",
+          "carries": "name"
+        },
+        {
+          "key": 3,
+          "name": "env",
+          "type": "map",
+          "keys": {
+            "type": "bytes",
+            "carries": "name"
+          },
+          "values": {
+            "type": "bytes",
+            "carries": "name"
+          }
+        },
+        {
+          "key": 4,
+          "name": "timeoutMs",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "4294967295"
+          }
+        },
+        {
+          "key": 5,
+          "name": "stream",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "t": "exec.chunk",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R7.2",
+        "R8.9"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "stream",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "1"
+          }
+        },
+        {
+          "key": 2,
+          "name": "data",
+          "type": "bytes",
+          "carries": "output"
+        }
+      ]
+    },
+    {
+      "t": "exec.result",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R7.1"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "exitCode",
+          "type": "int",
+          "range": {
+            "min": "-255",
+            "max": "255"
+          }
+        },
+        {
+          "key": 2,
+          "name": "stdout",
+          "type": "bytes",
+          "carries": "output"
+        },
+        {
+          "key": 3,
+          "name": "stderr",
+          "type": "bytes",
+          "carries": "output"
+        }
+      ]
+    },
+    {
+      "t": "proc.start",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.3"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "argv",
+          "type": "list",
+          "items": {
+            "type": "bytes",
+            "carries": "name"
+          }
+        },
+        {
+          "key": 2,
+          "name": "cwd",
+          "type": "bytes",
+          "carries": "name"
+        },
+        {
+          "key": 3,
+          "name": "env",
+          "type": "map",
+          "keys": {
+            "type": "bytes",
+            "carries": "name"
+          },
+          "values": {
+            "type": "bytes",
+            "carries": "name"
+          }
+        }
+      ]
+    },
+    {
+      "t": "proc.handle",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R7.3"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "handle",
+          "type": "bytes",
+          "carries": "name"
+        },
+        {
+          "key": 2,
+          "name": "pid",
+          "type": "uint",
+          "range": {
+            "min": "1",
+            "max": "4194304"
+          }
+        }
+      ]
+    },
+    {
+      "t": "proc.status",
+      "direction": "both",
+      "requirements": [
+        "R7.3"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "handle",
+          "type": "bytes",
+          "carries": "name"
+        },
+        {
+          "key": 2,
+          "name": "state",
+          "type": "text",
+          "enum": [
+            "running",
+            "exited",
+            "signalled"
+          ]
+        },
+        {
+          "key": 3,
+          "name": "exitCode",
+          "type": "int",
+          "range": {
+            "min": "-255",
+            "max": "255"
+          },
+          "optional": true
+        }
+      ]
+    },
+    {
+      "t": "fs.read",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.4"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "path",
+          "type": "bytes",
+          "carries": "name"
+        }
+      ]
+    },
+    {
+      "t": "fs.content",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R7.4"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "data",
+          "type": "bytes",
+          "carries": "output"
+        }
+      ]
+    },
+    {
+      "t": "fs.write",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.4"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "path",
+          "type": "bytes",
+          "carries": "name"
+        },
+        {
+          "key": 2,
+          "name": "data",
+          "type": "bytes",
+          "carries": "output"
+        },
+        {
+          "key": 3,
+          "name": "mode",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "4095"
+          }
+        }
+      ]
+    },
+    {
+      "t": "fs.list",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.4"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "path",
+          "type": "bytes",
+          "carries": "name"
+        }
+      ]
+    },
+    {
+      "t": "fs.listing",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R7.4"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "entries",
+          "type": "list",
+          "items": {
+            "type": "struct",
+            "fields": [
+              {
+                "key": 1,
+                "name": "name",
+                "type": "bytes",
+                "carries": "name"
+              },
+              {
+                "key": 2,
+                "name": "kind",
+                "type": "text",
+                "enum": [
+                  "file",
+                  "directory",
+                  "symlink",
+                  "other"
+                ]
+              },
+              {
+                "key": 3,
+                "name": "size",
+                "type": "uint",
+                "range": {
+                  "min": "0",
+                  "max": "9223372036854775807"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "t": "fs.delete",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.4"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "path",
+          "type": "bytes",
+          "carries": "name"
+        },
+        {
+          "key": 2,
+          "name": "recursive",
+          "type": "bool"
+        }
+      ]
+    },
+    {
+      "t": "fs.ack",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R7.4"
+      ],
+      "body": []
+    },
+    {
+      "t": "pty.open",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.5"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "cols",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "65535"
+          }
+        },
+        {
+          "key": 2,
+          "name": "rows",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "65535"
+          }
+        }
+      ]
+    },
+    {
+      "t": "pty.data",
+      "direction": "both",
+      "requirements": [
+        "R7.5"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "data",
+          "type": "bytes",
+          "carries": "output"
+        }
+      ]
+    },
+    {
+      "t": "pty.resize",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.5"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "cols",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "65535"
+          }
+        },
+        {
+          "key": 2,
+          "name": "rows",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "65535"
+          }
+        }
+      ]
+    },
+    {
+      "t": "pty.close",
+      "direction": "both",
+      "requirements": [
+        "R7.5"
+      ],
+      "body": []
+    },
+    {
+      "t": "port.expose",
+      "direction": "client-to-runtime",
+      "requirements": [
+        "R7.6"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "port",
+          "type": "uint",
+          "range": {
+            "min": "1",
+            "max": "65535"
+          }
+        }
+      ]
+    },
+    {
+      "t": "port.url",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R7.6"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "url",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "t": "session.quiesce",
+      "direction": "orchestrator-to-runtime",
+      "requirements": [
+        "R10.11"
+      ],
+      "body": []
+    },
+    {
+      "t": "error.decode",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R8.6"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "field",
+          "type": "text"
+        },
+        {
+          "key": 2,
+          "name": "detail",
+          "type": "text"
+        }
+      ]
+    },
+    {
+      "t": "error.version",
+      "direction": "runtime-to-client",
+      "requirements": [
+        "R8.7"
+      ],
+      "body": [
+        {
+          "key": 1,
+          "name": "received",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "18446744073709551615"
+          }
+        },
+        {
+          "key": 2,
+          "name": "supportedMin",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "18446744073709551615"
+          }
+        },
+        {
+          "key": 3,
+          "name": "supportedMax",
+          "type": "uint",
+          "range": {
+            "min": "0",
+            "max": "18446744073709551615"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  // kiro-classification: public
+  //
+  // Typechecks the TypeScript half of the Protocol_Codec on its own.
+  //
+  // The same arrangement, and the same reasons, as `protocol/generators/tsconfig.json`. The codec
+  // lives under `protocol/` because the design places both halves of one artefact together, so a
+  // schema change reaches both rather than silently narrowing one. The consequence is that it sits
+  // outside the one directory in this repository that has a `node_modules`, so `fast-check`,
+  // `cbor-x`, `vitest` and `@types/node` are reached through the mapping below rather than by
+  // walking up from here. The versions are therefore whatever `sdk/typescript/package.json` pins
+  // and its lock file records: one pinned copy, not a second one to keep in step (R15.8).
+  //
+  // Emit is off. Nothing here is built or published.
+  // Run with `npx --prefix sdk/typescript tsc --noEmit -p protocol/codec`.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      // The declaration files rather than the package directories: under `NodeNext` a mapped
+      // directory is not resolved through the package's `exports` block, so the entry point has to
+      // be named. All three are stable because all three versions are pinned exactly.
+      "fast-check": ["../../sdk/typescript/node_modules/fast-check/lib/fast-check.d.ts"],
+      "cbor-x": ["../../sdk/typescript/node_modules/cbor-x/index.d.ts"],
+      "vitest": ["../../sdk/typescript/node_modules/vitest/dist/index.d.ts"]
+    },
+    "typeRoots": ["../../sdk/typescript/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@agent-sandbox/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript Client_SDK for the AWS serverless agent sandbox",
+  "license": "MIT-0",
+  "type": "module",
+  "private": false,
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-sts": "3.1133.0",
+    "@aws-sdk/credential-providers": "3.1133.0",
+    "@smithy/hash-node": "4.5.2",
+    "@smithy/protocol-http": "5.6.2",
+    "@smithy/signature-v4": "5.7.3",
+    "cbor-x": "1.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "26.3.0",
+    "fast-check": "4.9.0",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

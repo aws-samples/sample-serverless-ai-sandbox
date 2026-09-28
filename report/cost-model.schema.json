@@ -1,0 +1,244 @@
+{
+  "$id": "urn:aws-serverless-agent-sandbox:report:cost-model",
+  "$comment": "kiro-classification: public. Dialect: JSON Schema Draft 2020-12, pinned at the validator in tests/test_cost_model_schema.py rather than declared by a dialect keyword here, whose value would be a network location. That validator also turns `format` on as an assertion, which is off by default; the date fields carry both a `format` and a `pattern` so an impossible date is refused rather than annotated. Every reference in this file is internal, so validation runs with no network access (R15.9).",
+  "title": "Cost_Model",
+  "description": "The machine-readable form of the Cost_Model (R4.3). One document per classification: report/cost-model.json is `public`, report/cost-model.confidential.json holds the line items whose pricing is available only from confidential material (R4.8). The split is mechanical because `classification` fixes the citation form every line item in the document must carry, so a line item cannot sit in the wrong file and still validate. Figures are populated by tasks 22.4 and 22.5; this file constrains their shape and nothing else.",
+  "type": "object",
+  "required": ["classification", "lineItems"],
+  "additionalProperties": false,
+  "properties": {
+    "$comment": {
+      "$ref": "#/$defs/statement",
+      "description": "Every other JSON file in the repository carries its classification marker here, JSON admitting no comment syntax. Permitted so a populated document can follow that convention; the machine-readable label is `classification` below, not this."
+    },
+    "classification": {
+      "enum": ["public", "confidential"],
+      "description": "The R18.1 label, in the form JSON syntax admits for it. It is also the Classification of every line item in the document (R4.8), which is why no line item carries one of its own."
+    },
+    "assumptions": {
+      "$ref": "#/$defs/assumptions"
+    },
+    "perSecondRateNotComparable": {
+      "$ref": "#/$defs/statement",
+      "description": "R4.10: the statement that the LMI_GPU shape and the per-second compute plus snapshot storage shape are not comparable on a single per-second rate. Required of any document carrying an `lmi-gpu-three-component` line item."
+    },
+    "idleFromContinuousMinimumEnvironment": {
+      "$ref": "#/$defs/statement",
+      "description": "R4.11: the statement that the LMI_GPU idle line item follows from a continuously running minimum of one execution environment, there being no automatic scale to zero. Required on the same condition as `perSecondRateNotComparable`, because `additionalProperties` is closed and task 22.5 would otherwise have nowhere to write a statement its requirement mandates."
+    },
+    "lineItems": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/lineItem" }
+    }
+  },
+  "allOf": [
+    { "$ref": "#/$defs/citationFormFollowsClassification" },
+    { "$ref": "#/$defs/gpuShapeStatesItsIncomparability" }
+  ],
+  "$defs": {
+    "lineItem": {
+      "title": "line item",
+      "description": "One Session shape on one platform. The three costs R4.2 requires are recorded separately here rather than as three sibling entries, so a shape-and-platform pair cannot be half present.",
+      "type": "object",
+      "required": [
+        "sessionShape",
+        "platform",
+        "pricingShape",
+        "activeCompute",
+        "idleOrSuspended",
+        "stateStorage",
+        "retrievalDate"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "sessionShape": { "$ref": "#/$defs/sessionShape" },
+        "platform": { "$ref": "#/$defs/nonEmptyString" },
+        "pricingShape": { "$ref": "#/$defs/pricingShape" },
+        "activeCompute": { "$ref": "#/$defs/cost" },
+        "idleOrSuspended": { "$ref": "#/$defs/cost" },
+        "stateStorage": { "$ref": "#/$defs/singleFigureCost" },
+        "retrievalDate": {
+          "$ref": "#/$defs/date",
+          "description": "R4.4: the date the published prices behind this line item were retrieved."
+        },
+        "sourceUrl": { "$ref": "#/$defs/sourceUrl" },
+        "packageName": { "$ref": "#/$defs/nonEmptyString" },
+        "documentDate": { "$ref": "#/$defs/date" }
+      },
+      "allOf": [{ "$ref": "#/$defs/computeCostFollowsPricingShape" }]
+    },
+
+    "sessionShape": {
+      "description": "The three named Session shapes of R4.1.",
+      "enum": [
+        "short-burst-60s-active",
+        "long-interactive-4h-wall-clock-20pct-active",
+        "batch-30m-continuous-active"
+      ]
+    },
+
+    "pricingShape": {
+      "description": "R4.10: two shapes, not one. Which one a line item names decides what its compute costs may look like, so the two cannot be flattened onto a single per-second rate by accident.",
+      "enum": ["per-second-compute-plus-snapshot-storage", "lmi-gpu-three-component"]
+    },
+
+    "computeCostFollowsPricingShape": {
+      "description": "The declared pricing shape decides the form of the two compute costs. State storage is a single figure under either shape.",
+      "if": {
+        "properties": { "pricingShape": { "const": "lmi-gpu-three-component" } },
+        "required": ["pricingShape"]
+      },
+      "then": {
+        "properties": {
+          "activeCompute": { "$ref": "#/$defs/threeComponentCost" },
+          "idleOrSuspended": { "$ref": "#/$defs/threeComponentCost" }
+        }
+      },
+      "else": {
+        "properties": {
+          "activeCompute": { "$ref": "#/$defs/singleFigureCost" },
+          "idleOrSuspended": { "$ref": "#/$defs/singleFigureCost" }
+        }
+      }
+    },
+
+    "citationFormFollowsClassification": {
+      "description": "R4.8: a confidential line item is identified by package name and document date in place of a source URL, because no public one resolves for it. The document's classification decides which form is admissible, and the other form is forbidden rather than merely unused.",
+      "if": {
+        "properties": { "classification": { "const": "public" } },
+        "required": ["classification"]
+      },
+      "then": {
+        "properties": { "lineItems": { "items": { "$ref": "#/$defs/publicCitation" } } }
+      },
+      "else": {
+        "properties": { "lineItems": { "items": { "$ref": "#/$defs/confidentialCitation" } } }
+      }
+    },
+
+    "publicCitation": {
+      "description": "A source URL, and neither confidential-source field (R4.4).",
+      "required": ["sourceUrl"],
+      "properties": {
+        "packageName": false,
+        "documentDate": false
+      }
+    },
+
+    "confidentialCitation": {
+      "description": "A package name and a document date, and no source URL (R4.8).",
+      "required": ["packageName", "documentDate"],
+      "properties": {
+        "sourceUrl": false
+      }
+    },
+
+    "gpuShapeStatesItsIncomparability": {
+      "description": "R4.10 and R4.11: both statements are required exactly where the shape they are about appears, and neither is required of a document that has no LMI_GPU line item to make them about.",
+      "if": {
+        "properties": {
+          "lineItems": {
+            "contains": {
+              "properties": { "pricingShape": { "const": "lmi-gpu-three-component" } },
+              "required": ["pricingShape"]
+            }
+          }
+        },
+        "required": ["lineItems"]
+      },
+      "then": {
+        "required": ["perSecondRateNotComparable", "idleFromContinuousMinimumEnvironment"]
+      }
+    },
+
+    "cost": {
+      "description": "A cost in either published shape, or `unpriced`. The union is the full set of admissible values for a compute cost; `computeCostFollowsPricingShape` then narrows it to the one shape the line item declared, so the two constraints intersect rather than either standing alone.",
+      "oneOf": [
+        { "$ref": "#/$defs/unpriced" },
+        { "$ref": "#/$defs/singleFigure" },
+        { "$ref": "#/$defs/threeComponent" }
+      ]
+    },
+
+    "singleFigureCost": {
+      "oneOf": [{ "$ref": "#/$defs/unpriced" }, { "$ref": "#/$defs/singleFigure" }]
+    },
+
+    "threeComponentCost": {
+      "oneOf": [{ "$ref": "#/$defs/unpriced" }, { "$ref": "#/$defs/threeComponent" }]
+    },
+
+    "unpriced": {
+      "description": "R4.6: where a platform publishes no pricing relevant to the line item, the recorded value is this literal. It is a string, so this position holds no key an estimate could be written into.",
+      "const": "unpriced"
+    },
+
+    "singleFigure": {
+      "description": "USD for one Session of the named shape.",
+      "type": "object",
+      "required": ["amountUsd"],
+      "additionalProperties": false,
+      "properties": {
+        "amountUsd": { "type": "number", "minimum": 0 },
+        "omittedComponents": { "$ref": "#/$defs/omittedComponents" }
+      }
+    },
+
+    "threeComponent": {
+      "description": "R4.9: the LMI_GPU shape, as three separate components. There is deliberately no aggregate figure here, which is what makes R4.10's claim structural rather than editorial: no single number in this object can be read as a per-second rate.",
+      "type": "object",
+      "required": [
+        "perRequestUsd",
+        "computeManagementFeePercentOfEc2OnDemandDedicatedHost",
+        "ec2InstanceUsd"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "perRequestUsd": { "type": "number", "minimum": 0 },
+        "computeManagementFeePercentOfEc2OnDemandDedicatedHost": {
+          "description": "A percentage of the Amazon EC2 on-demand dedicated host price, not a currency amount.",
+          "type": "number",
+          "minimum": 0
+        },
+        "ec2InstanceUsd": { "type": "number", "minimum": 0 },
+        "omittedComponents": { "$ref": "#/$defs/omittedComponents" }
+      }
+    },
+
+    "omittedComponents": {
+      "description": "R4.7: where only some of the components a line item needs are published, the figure is computed from those and the omitted ones are named here.",
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/nonEmptyString" }
+    },
+
+    "assumptions": {
+      "description": "R4.5. Optional, because the three assumptions are Lambda MicroVMs quantities that the confidential document would have to invent; task 22.4 states them in the public document. Present means complete.",
+      "type": "object",
+      "required": ["microVmBaselineSize", "snapshotSize", "requestVolume"],
+      "additionalProperties": false,
+      "properties": {
+        "microVmBaselineSize": { "$ref": "#/$defs/statement" },
+        "snapshotSize": { "$ref": "#/$defs/statement" },
+        "requestVolume": { "$ref": "#/$defs/statement" }
+      }
+    },
+
+    "date": {
+      "type": "string",
+      "format": "date",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+
+    "sourceUrl": {
+      "$comment": "The scheme is written as a character class per slash so this file carries no literal network location.",
+      "type": "string",
+      "pattern": "^https:[/][/]\\S+$"
+    },
+
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+
+    "statement": { "type": "string", "minLength": 1 }
+  }
+}

@@ -1,0 +1,938 @@
+{
+  "$comment": "GENERATED negative vectors: representations both codecs must refuse by protocol/vectors/export_vectors.py, using the Python Protocol_Codec as the producer. Do not edit; regenerate with `python -m protocol.vectors.export_vectors`.",
+  "vectors": [
+    {
+      "name": "wire/empty",
+      "wire": "",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "v"],
+      "note": "No bytes at all. Phase 0 has nothing to read, so the version is unreadable rather than unsupported, and the decode error names field 1."
+    },
+    {
+      "name": "wire/truncated",
+      "wire": "a40101026666732e61636b034004",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "A valid message with its last byte removed."
+    },
+    {
+      "name": "wire/trailing-bytes",
+      "wire": "a40101026666732e61636b034004a000",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "A valid message followed by a second item. A message is one item, so decoding the first and ignoring the rest would leave bytes unaccounted for."
+    },
+    {
+      "name": "value/duplicate-map-keys",
+      "wire": "a201010000",
+      "expect": "non-canonical",
+      "note": "Two entries with the same key, in ascending order so no ordering rule objects. The profile admits neither, because re-encoding could only emit one of them."
+    },
+    {
+      "name": "value/indefinite-byte-string",
+      "wire": "5f426162ff",
+      "expect": "non-canonical",
+      "note": "One chunk, indefinite head. A permissive reader returns the same bytes; the profile refuses it because the encoder could not have produced it."
+    },
+    {
+      "name": "value/non-shortest-integer",
+      "wire": "190001",
+      "expect": "non-canonical",
+      "note": "Integer 1 written with a two-byte head."
+    },
+    {
+      "name": "value/cbor2-key-order",
+      "wire": "a22000181800",
+      "expect": "non-canonical",
+      "note": "Shortest-encoding-first, which is RFC 7049 3.9 and what cbor2 canonical=True still emits. The profile's encoding of the same map is a21818002000."
+    },
+    {
+      "name": "value/decoded-key-order",
+      "wire": "a34100004200000241ff01",
+      "expect": "non-canonical",
+      "note": "Byte-string keys in decoded order rather than encoded order."
+    },
+    {
+      "name": "exec.request/env.sorted-by-decoded-key",
+      "wire": "a40101026c657865632e72657175657374034004a50180024003a341004100420000410241ff4101040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "The nested map's keys are in decoded-byte order rather than encoded-byte order, which is the ordering rule RFC 8949 4.2.1 replaced. Phases 0 and 1 pass, so Phase 2's profile check is what must refuse it."
+    },
+    {
+      "name": "proc.start/env.sorted-by-decoded-key",
+      "wire": "a40101026a70726f632e7374617274034004a30180024003a341004100420000410241ff4101",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "The nested map's keys are in decoded-byte order rather than encoded-byte order, which is the ordering rule RFC 8949 4.2.1 replaced. Phases 0 and 1 pass, so Phase 2's profile check is what must refuse it."
+    },
+    {
+      "name": "fault/empty-wire",
+      "wire": "",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "v"],
+      "note": "From protocol.generators.faults: kind empty-wire, class version-unreadable, applied to 'exec.request'."
+    },
+    {
+      "name": "fault/truncated-wire",
+      "wire": "a40101",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "v"],
+      "note": "From protocol.generators.faults: kind truncated-wire, class version-unreadable, applied to 'exec.request'."
+    },
+    {
+      "name": "fault/version-not-an-integer",
+      "wire": "a4016178026c657865632e72657175657374034004a50180024003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "v"],
+      "note": "From protocol.generators.faults: kind version-not-an-integer, class version-unreadable, applied to 'exec.request'."
+    },
+    {
+      "name": "fault/version-key-misplaced",
+      "wire": "a4026c657865632e726571756573740101034004a50180024003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "v"],
+      "note": "From protocol.generators.faults: kind version-key-misplaced, class version-unreadable, applied to 'exec.request'."
+    },
+    {
+      "name": "fault/indefinite-envelope",
+      "wire": "bf0101026c657865632e72657175657374034004a50180024003a0040005f4ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "v"],
+      "note": "From protocol.generators.faults: kind indefinite-envelope, class version-unreadable, applied to 'exec.request'."
+    },
+    {
+      "name": "fault/unsupported-version",
+      "wire": "a40100026c657865632e72657175657374034004a50180024003a0040005f4",
+      "expect": "version-error",
+      "received": "0",
+      "note": "From protocol.generators.faults: kind unsupported-version, class version-unsupported, applied to 'exec.request'."
+    },
+    {
+      "name": "fault/schema-violation",
+      "wire": "a40101026f657865632e756e6465636c61726564034004a50180024003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["2", "t"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.request', violating unknown-message-type."
+    },
+    {
+      "name": "fault/unsupported-version-and-schema-violation",
+      "wire": "a40100026f657865632e756e6465636c61726564034004a50180024003a0040005f4",
+      "expect": "version-error",
+      "received": "0",
+      "note": "From protocol.generators.faults: kind unsupported-version-and-schema-violation, class version-unsupported-and-schema-violation, applied to 'exec.request', violating unknown-message-type."
+    },
+    {
+      "name": "violation/wrong-type",
+      "wire": "a401010200034004a50180024003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["2", "t"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.request', violating wrong-type."
+    },
+    {
+      "name": "violation/out-of-range",
+      "wire": "a40101026c657865632e72657175657374034004a50180024003a0041b000000010000000005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "4.4", "b.4", "b.timeoutMs", "timeoutMs"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.request', violating out-of-range."
+    },
+    {
+      "name": "violation/not-in-enum",
+      "wire": "a40101026b70726f632e737461747573034004a2014002746e6f742d612d6465636c617265642d76616c7565",
+      "expect": "decode-error",
+      "fieldIdentities": ["2", "4.2", "b.2", "b.state", "state"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'proc.status', violating not-in-enum."
+    },
+    {
+      "name": "violation/missing-required-field",
+      "wire": "a40101026c657865632e72657175657374034004a4024003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "4.1", "argv", "b.1", "b.argv"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.request', violating missing-required-field."
+    },
+    {
+      "name": "violation/unknown-body-key",
+      "wire": "a40101026c657865632e72657175657374034004a60180024003a0040005f40600",
+      "expect": "decode-error",
+      "fieldIdentities": ["4.6", "6", "b.6"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.request', violating unknown-body-key."
+    },
+    {
+      "name": "violation/unknown-message-type",
+      "wire": "a40101026f657865632e756e6465636c61726564034004a50180024003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["2", "t"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.request', violating unknown-message-type."
+    },
+    {
+      "name": "violation/exec.request/wrong-type",
+      "wire": "a40101026c657865632e7265717565737403400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.request', violating wrong-type."
+    },
+    {
+      "name": "violation/exec.chunk/wrong-type",
+      "wire": "a40101026a657865632e6368756e6b03400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.chunk', violating wrong-type."
+    },
+    {
+      "name": "violation/exec.result/wrong-type",
+      "wire": "a40101026b657865632e726573756c7403400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'exec.result', violating wrong-type."
+    },
+    {
+      "name": "violation/proc.start/wrong-type",
+      "wire": "a40101026a70726f632e737461727403400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'proc.start', violating wrong-type."
+    },
+    {
+      "name": "violation/proc.handle/wrong-type",
+      "wire": "a40101026b70726f632e68616e646c6503400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'proc.handle', violating wrong-type."
+    },
+    {
+      "name": "violation/proc.status/wrong-type",
+      "wire": "a40101026b70726f632e73746174757303400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'proc.status', violating wrong-type."
+    },
+    {
+      "name": "violation/fs.read/wrong-type",
+      "wire": "a40101026766732e7265616403400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'fs.read', violating wrong-type."
+    },
+    {
+      "name": "violation/fs.content/wrong-type",
+      "wire": "a40101026a66732e636f6e74656e7403400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'fs.content', violating wrong-type."
+    },
+    {
+      "name": "violation/fs.write/wrong-type",
+      "wire": "a40101026866732e777269746503400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'fs.write', violating wrong-type."
+    },
+    {
+      "name": "violation/fs.list/wrong-type",
+      "wire": "a40101026766732e6c69737403400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'fs.list', violating wrong-type."
+    },
+    {
+      "name": "violation/fs.listing/wrong-type",
+      "wire": "a40101026a66732e6c697374696e6703400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'fs.listing', violating wrong-type."
+    },
+    {
+      "name": "violation/fs.delete/wrong-type",
+      "wire": "a40101026966732e64656c65746503400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'fs.delete', violating wrong-type."
+    },
+    {
+      "name": "violation/fs.ack/wrong-type",
+      "wire": "a40101026666732e61636b03400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'fs.ack', violating wrong-type."
+    },
+    {
+      "name": "violation/pty.open/wrong-type",
+      "wire": "a4010102687074792e6f70656e03400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'pty.open', violating wrong-type."
+    },
+    {
+      "name": "violation/pty.data/wrong-type",
+      "wire": "a4010102687074792e6461746103400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'pty.data', violating wrong-type."
+    },
+    {
+      "name": "violation/pty.resize/wrong-type",
+      "wire": "a40101026a7074792e726573697a6503400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'pty.resize', violating wrong-type."
+    },
+    {
+      "name": "violation/pty.close/wrong-type",
+      "wire": "a4010102697074792e636c6f736503400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'pty.close', violating wrong-type."
+    },
+    {
+      "name": "violation/port.expose/wrong-type",
+      "wire": "a40101026b706f72742e6578706f736503400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'port.expose', violating wrong-type."
+    },
+    {
+      "name": "violation/port.url/wrong-type",
+      "wire": "a401010268706f72742e75726c03400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'port.url', violating wrong-type."
+    },
+    {
+      "name": "violation/session.quiesce/wrong-type",
+      "wire": "a40101026f73657373696f6e2e7175696573636503400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'session.quiesce', violating wrong-type."
+    },
+    {
+      "name": "violation/error.decode/wrong-type",
+      "wire": "a40101026c6572726f722e6465636f646503400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'error.decode', violating wrong-type."
+    },
+    {
+      "name": "violation/error.version/wrong-type",
+      "wire": "a40101026d6572726f722e76657273696f6e03400400",
+      "expect": "decode-error",
+      "fieldIdentities": ["4", "b"],
+      "note": "From protocol.generators.faults: kind schema-violation, class schema-violation, applied to 'error.version', violating wrong-type."
+    },
+    {
+      "name": "profile/exec.request/indefinite-string",
+      "wire": "a40101027f6c657865632e72657175657374ff034004a50180024003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical exec.request. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.request/indefinite-container",
+      "wire": "bf0101026c657865632e72657175657374034004a50180024003a0040005f4ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical exec.request. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.request/non-shortest-head",
+      "wire": "b8040101026c657865632e72657175657374034004a50180024003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical exec.request. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.request/unsorted-map-keys",
+      "wire": "a40101026c657865632e72657175657374034004a50240018003a0040005f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 21 of an otherwise canonical exec.request. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.chunk/indefinite-string",
+      "wire": "a40101027f6a657865632e6368756e6bff034004a201000240",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical exec.chunk. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.chunk/indefinite-container",
+      "wire": "bf0101026a657865632e6368756e6b034004a201000240ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical exec.chunk. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.chunk/non-shortest-head",
+      "wire": "b8040101026a657865632e6368756e6b034004a201000240",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical exec.chunk. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.chunk/unsorted-map-keys",
+      "wire": "a40101026a657865632e6368756e6b034004a202400100",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 19 of an otherwise canonical exec.chunk. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.result/indefinite-string",
+      "wire": "a40101027f6b657865632e726573756c74ff034004a30138fe02400340",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical exec.result. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.result/indefinite-container",
+      "wire": "bf0101026b657865632e726573756c74034004a30138fe02400340ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical exec.result. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.result/non-shortest-head",
+      "wire": "b8040101026b657865632e726573756c74034004a30138fe02400340",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical exec.result. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/exec.result/unsorted-map-keys",
+      "wire": "a40101026b657865632e726573756c74034004a302400138fe0340",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 20 of an otherwise canonical exec.result. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.start/indefinite-string",
+      "wire": "a40101027f6a70726f632e7374617274ff034004a30180024003a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical proc.start. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.start/indefinite-container",
+      "wire": "bf0101026a70726f632e7374617274034004a30180024003a0ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical proc.start. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.start/non-shortest-head",
+      "wire": "b8040101026a70726f632e7374617274034004a30180024003a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical proc.start. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.start/unsorted-map-keys",
+      "wire": "a40101026a70726f632e7374617274034004a30240018003a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 19 of an otherwise canonical proc.start. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.handle/indefinite-string",
+      "wire": "a40101027f6b70726f632e68616e646c65ff034004a201400201",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical proc.handle. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.handle/indefinite-container",
+      "wire": "bf0101026b70726f632e68616e646c65034004a201400201ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical proc.handle. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.handle/non-shortest-head",
+      "wire": "b8040101026b70726f632e68616e646c65034004a201400201",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical proc.handle. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.handle/unsorted-map-keys",
+      "wire": "a40101026b70726f632e68616e646c65034004a202010140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 20 of an otherwise canonical proc.handle. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.status/indefinite-string",
+      "wire": "a40101027f6b70726f632e737461747573ff034004a20140026772756e6e696e67",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical proc.status. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.status/indefinite-container",
+      "wire": "bf0101026b70726f632e737461747573034004a20140026772756e6e696e67ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical proc.status. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.status/non-shortest-head",
+      "wire": "b8040101026b70726f632e737461747573034004a20140026772756e6e696e67",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical proc.status. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/proc.status/unsorted-map-keys",
+      "wire": "a40101026b70726f632e737461747573034004a2026772756e6e696e670140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 20 of an otherwise canonical proc.status. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.read/indefinite-string",
+      "wire": "a40101027f6766732e72656164ff034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical fs.read. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.read/indefinite-container",
+      "wire": "bf0101026766732e72656164034004a10140ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical fs.read. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.read/non-shortest-head",
+      "wire": "b8040101026766732e72656164034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical fs.read. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.read/unsorted-map-keys",
+      "wire": "a4026766732e726561640101034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical fs.read. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.content/indefinite-string",
+      "wire": "a40101027f6a66732e636f6e74656e74ff034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical fs.content. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.content/indefinite-container",
+      "wire": "bf0101026a66732e636f6e74656e74034004a10140ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical fs.content. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.content/non-shortest-head",
+      "wire": "b8040101026a66732e636f6e74656e74034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical fs.content. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.content/unsorted-map-keys",
+      "wire": "a4026a66732e636f6e74656e740101034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical fs.content. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.write/indefinite-string",
+      "wire": "a40101027f6866732e7772697465ff034004a3014002400300",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical fs.write. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.write/indefinite-container",
+      "wire": "bf0101026866732e7772697465034004a3014002400300ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical fs.write. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.write/non-shortest-head",
+      "wire": "b8040101026866732e7772697465034004a3014002400300",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical fs.write. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.write/unsorted-map-keys",
+      "wire": "a40101026866732e7772697465034004a3024001400300",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 17 of an otherwise canonical fs.write. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.list/indefinite-string",
+      "wire": "a40101027f6766732e6c697374ff034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical fs.list. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.list/indefinite-container",
+      "wire": "bf0101026766732e6c697374034004a10140ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical fs.list. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.list/non-shortest-head",
+      "wire": "b8040101026766732e6c697374034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical fs.list. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.list/unsorted-map-keys",
+      "wire": "a4026766732e6c6973740101034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical fs.list. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.listing/indefinite-string",
+      "wire": "a40101027f6a66732e6c697374696e67ff034004a10180",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical fs.listing. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.listing/indefinite-container",
+      "wire": "bf0101026a66732e6c697374696e67034004a10180ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical fs.listing. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.listing/non-shortest-head",
+      "wire": "b8040101026a66732e6c697374696e67034004a10180",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical fs.listing. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.listing/unsorted-map-keys",
+      "wire": "a4026a66732e6c697374696e670101034004a10180",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical fs.listing. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.delete/indefinite-string",
+      "wire": "a40101027f6966732e64656c657465ff034004a2014002f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical fs.delete. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.delete/indefinite-container",
+      "wire": "bf0101026966732e64656c657465034004a2014002f4ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical fs.delete. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.delete/non-shortest-head",
+      "wire": "b8040101026966732e64656c657465034004a2014002f4",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical fs.delete. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.delete/unsorted-map-keys",
+      "wire": "a40101026966732e64656c657465034004a202f40140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 18 of an otherwise canonical fs.delete. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.ack/indefinite-string",
+      "wire": "a40101027f6666732e61636bff034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical fs.ack. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.ack/indefinite-container",
+      "wire": "bf0101026666732e61636b034004a0ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical fs.ack. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.ack/non-shortest-head",
+      "wire": "b8040101026666732e61636b034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical fs.ack. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/fs.ack/unsorted-map-keys",
+      "wire": "a4026666732e61636b0101034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical fs.ack. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.open/indefinite-string",
+      "wire": "a40101027f687074792e6f70656eff034004a201000200",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical pty.open. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.open/indefinite-container",
+      "wire": "bf010102687074792e6f70656e034004a201000200ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical pty.open. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.open/non-shortest-head",
+      "wire": "b804010102687074792e6f70656e034004a201000200",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical pty.open. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.open/unsorted-map-keys",
+      "wire": "a4010102687074792e6f70656e034004a202000100",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 17 of an otherwise canonical pty.open. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.data/indefinite-string",
+      "wire": "a40101027f687074792e64617461ff034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical pty.data. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.data/indefinite-container",
+      "wire": "bf010102687074792e64617461034004a10140ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical pty.data. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.data/non-shortest-head",
+      "wire": "b804010102687074792e64617461034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical pty.data. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.data/unsorted-map-keys",
+      "wire": "a402687074792e646174610101034004a10140",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical pty.data. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.resize/indefinite-string",
+      "wire": "a40101027f6a7074792e726573697a65ff034004a201000200",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical pty.resize. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.resize/indefinite-container",
+      "wire": "bf0101026a7074792e726573697a65034004a201000200ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical pty.resize. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.resize/non-shortest-head",
+      "wire": "b8040101026a7074792e726573697a65034004a201000200",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical pty.resize. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.resize/unsorted-map-keys",
+      "wire": "a40101026a7074792e726573697a65034004a202000100",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 19 of an otherwise canonical pty.resize. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.close/indefinite-string",
+      "wire": "a40101027f697074792e636c6f7365ff034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical pty.close. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.close/indefinite-container",
+      "wire": "bf010102697074792e636c6f7365034004a0ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical pty.close. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.close/non-shortest-head",
+      "wire": "b804010102697074792e636c6f7365034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical pty.close. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/pty.close/unsorted-map-keys",
+      "wire": "a402697074792e636c6f73650101034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical pty.close. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/port.expose/indefinite-string",
+      "wire": "a40101027f6b706f72742e6578706f7365ff034004a10101",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical port.expose. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/port.expose/indefinite-container",
+      "wire": "bf0101026b706f72742e6578706f7365034004a10101ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical port.expose. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/port.expose/non-shortest-head",
+      "wire": "b8040101026b706f72742e6578706f7365034004a10101",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical port.expose. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/port.expose/unsorted-map-keys",
+      "wire": "a4026b706f72742e6578706f73650101034004a10101",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical port.expose. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/port.url/indefinite-string",
+      "wire": "a40101027f68706f72742e75726cff034004a10160",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical port.url. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/port.url/indefinite-container",
+      "wire": "bf01010268706f72742e75726c034004a10160ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical port.url. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/port.url/non-shortest-head",
+      "wire": "b80401010268706f72742e75726c034004a10160",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical port.url. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/port.url/unsorted-map-keys",
+      "wire": "a40268706f72742e75726c0101034004a10160",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical port.url. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/session.quiesce/indefinite-string",
+      "wire": "a40101027f6f73657373696f6e2e71756965736365ff034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical session.quiesce. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/session.quiesce/indefinite-container",
+      "wire": "bf0101026f73657373696f6e2e71756965736365034004a0ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical session.quiesce. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/session.quiesce/non-shortest-head",
+      "wire": "b8040101026f73657373696f6e2e71756965736365034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical session.quiesce. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/session.quiesce/unsorted-map-keys",
+      "wire": "a4026f73657373696f6e2e717569657363650101034004a0",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 1 of an otherwise canonical session.quiesce. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/error.decode/indefinite-string",
+      "wire": "a40101027f6c6572726f722e6465636f6465ff034004a201600260",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical error.decode. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/error.decode/indefinite-container",
+      "wire": "bf0101026c6572726f722e6465636f6465034004a201600260ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical error.decode. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/error.decode/non-shortest-head",
+      "wire": "b8040101026c6572726f722e6465636f6465034004a201600260",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical error.decode. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/error.decode/unsorted-map-keys",
+      "wire": "a40101026c6572726f722e6465636f6465034004a202600160",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 21 of an otherwise canonical error.decode. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/error.version/indefinite-string",
+      "wire": "a40101027f6d6572726f722e76657273696f6eff034004a3010002000300",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-string at byte 4 of an otherwise canonical error.version. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/error.version/indefinite-container",
+      "wire": "bf0101026d6572726f722e76657273696f6e034004a3010002000300ff",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "indefinite-container at byte 0 of an otherwise canonical error.version. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/error.version/non-shortest-head",
+      "wire": "b8040101026d6572726f722e76657273696f6e034004a3010002000300",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "non-shortest-head at byte 0 of an otherwise canonical error.version. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    },
+    {
+      "name": "profile/error.version/unsorted-map-keys",
+      "wire": "a40101026d6572726f722e76657273696f6e034004a3020001000300",
+      "expect": "decode-error",
+      "fieldIdentities": ["1", "message", "v"],
+      "note": "unsorted-map-keys at byte 22 of an otherwise canonical error.version. A permissive reader decodes it to the value the canonical encoding carries, so refusing it is the profile's decision and not a question of well-formedness."
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "$comment": "GENERATED value-level encoding vectors by protocol/vectors/export_vectors.py, using the Python Protocol_Codec as the producer. Do not edit; regenerate with `python -m protocol.vectors.export_vectors`.",
+  "vectors": [
+    {
+      "name": "map.keys.cbor2-counterexample",
+      "wire": "a21818002000",
+      "value": {"map": [["int:-1", "int:0"], ["int:24", "int:0"]]},
+      "note": "The divergence the design records, value for value. cbor2's canonical=True orders these shortest-encoding first and emits a22000181800; RFC 8949 4.2.1 compares the encoded keys bytewise and emits a21818002000. The pair order below is cbor2's, so an encoder applying that rule reproduces its own bytes rather than these."
+    },
+    {
+      "name": "map.keys.mixed-sign-head-widths",
+      "wire": "a5000418180320023701381800",
+      "value": {"map": [["int:-25", "int:0"], ["int:-24", "int:1"], ["int:-1", "int:2"], ["int:24", "int:3"], ["int:0", "int:4"]]},
+      "note": "Five keys across two head widths and both integer majors. Bytewise on the encodings gives 0, 24, -1, -24, -25; shortest-encoding-first gives 0, -1, -24, 24, -25, so the two rules disagree about three of the five positions."
+    },
+    {
+      "name": "map.keys.unsigned-head-widths",
+      "wire": "ab000a0109170818180718ff061901000519ffff041a00010000031affffffff021b0000000100000000011bffffffffffffffff00",
+      "value": {"map": [["int:18446744073709551615", "int:0"], ["int:4294967296", "int:1"], ["int:4294967295", "int:2"], ["int:65536", "int:3"], ["int:65535", "int:4"], ["int:256", "int:5"], ["int:255", "int:6"], ["int:24", "int:7"], ["int:23", "int:8"], ["int:1", "int:9"], ["int:0", "int:10"]]},
+      "note": "Every unsigned head width in one map, so a codec that selects the width from the value rather than from a table is exercised at each crossing."
+    },
+    {
+      "name": "map.keys.byte-strings-content-order",
+      "wire": "a341000241ff0142000000",
+      "value": {"map": [["bytes:0000", "int:0"], ["bytes:ff", "int:1"], ["bytes:00", "int:2"]]},
+      "note": "Byte-string keys whose encoded order differs from their decoded order: the profile gives 0x00, 0xff, 0x0000 and a comparison of the keys themselves gives 0x00, 0x0000, 0xff."
+    },
+    {
+      "name": "map.keys.byte-strings-head-widths",
+      "wire": "a44003576b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b0258186b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b015901006b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b00",
+      "value": {"map": [["bytes:6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b", "int:0"], ["bytes:6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b", "int:1"], ["bytes:6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b6b", "int:2"], ["bytes:", "int:3"]]},
+      "note": "Byte-string keys at lengths 0, 23, 24 and 256, which is one, one, two and three head bytes."
+    },
+    {
+      "name": "map.keys.mixed-major-types",
+      "wire": "a40203416102616101f500",
+      "value": {"map": [["bool:true", "int:0"], ["text:a", "int:1"], ["bytes:61", "int:2"], ["int:2", "int:3"]]},
+      "note": "An unsigned integer, a byte string, a text string and a boolean as keys of one map. Bytewise on the encodings interleaves the majors by their head byte; shortest-encoding-first groups them by length instead."
+    },
+    {
+      "name": "map.nested-in-list-in-map",
+      "wire": "a20182a21818012000a241ff00420000011818a20001f500",
+      "value": {"map": [["int:1", {"list": [{"map": [["int:-1", "int:0"], ["int:24", "int:1"]]}, {"map": [["bytes:ff", "int:0"], ["bytes:0000", "int:1"]]}]}], ["int:24", {"map": [["bool:true", "int:0"], ["int:0", "int:1"]]}]]},
+      "note": "Three levels, so the ordering rule is applied recursively rather than only at the root."
+    },
+    {
+      "name": "integer.unsigned-head-widths",
+      "wire": "8b000117181818ff19010019ffff1a000100001affffffff1b00000001000000001bffffffffffffffff",
+      "value": {"list": ["int:0", "int:1", "int:23", "int:24", "int:255", "int:256", "int:65535", "int:65536", "int:4294967295", "int:4294967296", "int:18446744073709551615"]},
+      "note": "Each unsigned head width as a value rather than as a key."
+    },
+    {
+      "name": "integer.negative-head-widths",
+      "wire": "892037381838ff39010039ffff3a000100003affffffff3bffffffffffffffff",
+      "value": {"list": ["int:-1", "int:-24", "int:-25", "int:-256", "int:-257", "int:-65536", "int:-65537", "int:-4294967296", "int:-18446744073709551616"]},
+      "note": "Each negative head width, where the encoded argument is -1 - n rather than n."
+    },
+    {
+      "name": "string.length-boundaries",
+      "wire": "8c40417a577a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a58187a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a58ff7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a5901007a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a60617a777a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a78187a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a78ff7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7901007a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a",
+      "value": {"list": ["bytes:", "bytes:7a", "bytes:7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a", "bytes:7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a", "bytes:7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a", "bytes:7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a", "text:", "text:z", "text:zzzzzzzzzzzzzzzzzzzzzzz", "text:zzzzzzzzzzzzzzzzzzzzzzzz", "text:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz", "text:zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"]},
+      "note": "Byte and text strings at the CBOR length-prefix crossings 0, 1, 23, 24, 255 and 256."
+    },
+    {
+      "name": "string.invalid-utf8-verbatim",
+      "wire": "981c43eda08043edafbf43edb08043edbfbf46eda0bdedb88041c342e28243f09f92418041bf4282ac42c08042c1bf43e0808043e09fbf44f080808044f08fbfbf41ff41fe42fffe42feff44ffffffff4bf5f6f7f8f9fafbfcfdfeff41004200004c6265666f72650061667465725000000000000000000000000000000000450061006200",
+      "value": {"list": ["bytes:eda080", "bytes:edafbf", "bytes:edb080", "bytes:edbfbf", "bytes:eda0bdedb880", "bytes:c3", "bytes:e282", "bytes:f09f92", "bytes:80", "bytes:bf", "bytes:82ac", "bytes:c080", "bytes:c1bf", "bytes:e08080", "bytes:e09fbf", "bytes:f0808080", "bytes:f08fbfbf", "bytes:ff", "bytes:fe", "bytes:fffe", "bytes:feff", "bytes:ffffffff", "bytes:f5f6f7f8f9fafbfcfdfeff", "bytes:00", "bytes:0000", "bytes:6265666f7265006166746572", "bytes:00000000000000000000000000000000", "bytes:0061006200"]},
+      "note": "Every named adversarial byte sequence as a byte string, which is R8.9 at the value level: none of these has a text encoding, and all of them travel unchanged."
+    },
+    {
+      "name": "empty.containers-and-scalars",
+      "wire": "88406080a0f5f40020",
+      "value": {"list": ["bytes:", "text:", {"list": []}, {"map": []}, "bool:true", "bool:false", "int:0", "int:-1"]},
+      "note": "The values with no payload, which a length-prefix bug reaches first."
+    }
+  ]
+}

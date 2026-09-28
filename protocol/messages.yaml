@@ -1,0 +1,386 @@
+# kiro-classification: public
+#
+# Sandbox_Protocol message catalogue — the single schema source (R8.1).
+#
+# This file is the machine-readable form of the design's "Sandbox_Protocol message
+# catalogue" table and its "Message shape" table. Everything downstream reads it rather
+# than restating it: the Protocol_Codec validates against it, protocol/generators/ derives
+# its message and byte generators from it, and the TypeScript codec validates against the
+# same document so the two implementations cannot drift apart in a way the vector corpus
+# would have to catch.
+#
+# Type vocabulary, closed:
+#   uint    CBOR major type 0. `range` declares the admissible interval.
+#   int     CBOR major type 0 or 1. `range` declares the admissible interval.
+#   bool    CBOR simple value 20 or 21.
+#   text    CBOR major type 3. `enum` declares the admissible values when closed.
+#   bytes   CBOR major type 2. Carries bytes verbatim: no transcoding, no validity constraint.
+#   list    CBOR major type 4, definite length. `items` declares the element type.
+#   map     CBOR major type 5, definite length. `keys` and `values` declare the entry types.
+#   struct  A map keyed by small unsigned integers, its own `fields` list.
+#
+# The `carries` annotation is the machine-checkable form of the byte-string rule the design
+# states twice — once for process output (R8.9) and once for directory entry names. A field
+# annotated `output` carries bytes produced by a process; a field annotated `name` carries a
+# filesystem path, a path component, an environment variable name or value, an argv element,
+# or a process handle. Both annotations require `bytes`, because a filename on a Linux
+# filesystem is a byte sequence and need not be valid UTF-8, and neither is a text string
+# anywhere in this protocol. The loader enforces that; test_schema.py asserts it.
+#
+# Body keys are small unsigned integers, assigned in the order the design's catalogue lists
+# the fields, contiguous from 1 within each message type. Integer keys give a field identity
+# for R8.6's decode errors that does not shift when a field is renamed.
+
+schemaVersion: 1
+
+# The version the codec emits, and the inclusive range it admits in Phase 1 of the decode
+# algorithm. One supported version, because there has not yet been a second: the range is a
+# pair rather than a constant so that R8.7's version error can report both bounds without the
+# codec inventing them.
+protocol:
+  version: 1
+  supportedMin: 1
+  supportedMax: 1
+
+# Every message is this definite-length four-key CBOR map. Key 1 sorts first under the
+# deterministic encoding profile, which is what makes the version readable before any other
+# field and gives R8.8 its mechanism rather than a convention.
+envelope:
+  fields:
+    - key: 1
+      name: v
+      type: uint
+      # The full CBOR unsigned range, not the supported range. An unsupported version is a
+      # well-formed message that Phase 1 rejects, so the envelope has to admit it in order
+      # for the version error to be reachable at all.
+      range: { min: 0, max: 18446744073709551615 }
+    - key: 2
+      name: t
+      type: text
+    - key: 3
+      name: id
+      type: bytes
+    - key: 4
+      name: b
+      type: map
+
+messages:
+  # --- Command execution (R7.1, R7.2, R8.9) -----------------------------------------------
+
+  - t: exec.request
+    direction: client-to-runtime
+    requirements: [R7.1]
+    body:
+      - key: 1
+        name: argv
+        type: list
+        items:
+          type: bytes
+          carries: name
+      - key: 2
+        name: cwd
+        type: bytes
+        carries: name
+      - key: 3
+        name: env
+        type: map
+        keys:
+          type: bytes
+          carries: name
+        values:
+          type: bytes
+          carries: name
+      - key: 4
+        name: timeoutMs
+        # Zero means no timeout. Present rather than optional so a client cannot express
+        # "no timeout" by omission and "no timeout" by zero and mean two different things.
+        type: uint
+        range: { min: 0, max: 4294967295 }
+      - key: 5
+        name: stream
+        type: bool
+
+  - t: exec.chunk
+    direction: runtime-to-client
+    requirements: [R7.2, R8.9]
+    body:
+      - key: 1
+        name: stream
+        # 0 stdout, 1 stderr.
+        type: uint
+        range: { min: 0, max: 1 }
+      - key: 2
+        name: data
+        type: bytes
+        carries: output
+
+  - t: exec.result
+    direction: runtime-to-client
+    requirements: [R7.1]
+    body:
+      - key: 1
+        name: exitCode
+        # Negative values report termination by signal N as -N, which is why this is signed
+        # while every other integer in the catalogue is not.
+        type: int
+        range: { min: -255, max: 255 }
+      - key: 2
+        name: stdout
+        type: bytes
+        carries: output
+      - key: 3
+        name: stderr
+        type: bytes
+        carries: output
+
+  # --- Background processes (R7.3) --------------------------------------------------------
+
+  - t: proc.start
+    direction: client-to-runtime
+    requirements: [R7.3]
+    body:
+      - key: 1
+        name: argv
+        type: list
+        items:
+          type: bytes
+          carries: name
+      - key: 2
+        name: cwd
+        type: bytes
+        carries: name
+      - key: 3
+        name: env
+        type: map
+        keys:
+          type: bytes
+          carries: name
+        values:
+          type: bytes
+          carries: name
+
+  - t: proc.handle
+    direction: runtime-to-client
+    requirements: [R7.3]
+    body:
+      - key: 1
+        name: handle
+        type: bytes
+        carries: name
+      - key: 2
+        name: pid
+        # Upper bound is the Linux pid_max ceiling.
+        type: uint
+        range: { min: 1, max: 4194304 }
+
+  - t: proc.status
+    direction: both
+    requirements: [R7.3]
+    body:
+      - key: 1
+        name: handle
+        type: bytes
+        carries: name
+      - key: 2
+        name: state
+        type: text
+        enum: [running, exited, signalled]
+      - key: 3
+        name: exitCode
+        # Absent while `state` is `running`: a process that has not exited has no exit code,
+        # and reporting a placeholder would make a running process indistinguishable from one
+        # that exited with that value.
+        type: int
+        range: { min: -255, max: 255 }
+        optional: true
+
+  # --- Filesystem (R7.4) -----------------------------------------------------------------
+
+  - t: fs.read
+    direction: client-to-runtime
+    requirements: [R7.4]
+    body:
+      - key: 1
+        name: path
+        type: bytes
+        carries: name
+
+  - t: fs.content
+    direction: runtime-to-client
+    requirements: [R7.4]
+    body:
+      - key: 1
+        name: data
+        type: bytes
+        carries: output
+
+  - t: fs.write
+    direction: client-to-runtime
+    requirements: [R7.4]
+    body:
+      - key: 1
+        name: path
+        type: bytes
+        carries: name
+      - key: 2
+        name: data
+        type: bytes
+        carries: output
+      - key: 3
+        name: mode
+        # POSIX permission bits, so 0o7777.
+        type: uint
+        range: { min: 0, max: 4095 }
+
+  - t: fs.list
+    direction: client-to-runtime
+    requirements: [R7.4]
+    body:
+      - key: 1
+        name: path
+        type: bytes
+        carries: name
+
+  - t: fs.listing
+    direction: runtime-to-client
+    requirements: [R7.4]
+    body:
+      - key: 1
+        name: entries
+        type: list
+        items:
+          type: struct
+          fields:
+            - key: 1
+              name: name
+              type: bytes
+              carries: name
+            - key: 2
+              name: kind
+              type: text
+              enum: [file, directory, symlink, other]
+            - key: 3
+              name: size
+              type: uint
+              range: { min: 0, max: 9223372036854775807 }
+
+  - t: fs.delete
+    direction: client-to-runtime
+    requirements: [R7.4]
+    body:
+      - key: 1
+        name: path
+        type: bytes
+        carries: name
+      - key: 2
+        name: recursive
+        type: bool
+
+  - t: fs.ack
+    direction: runtime-to-client
+    requirements: [R7.4]
+    # Empty body. The design's catalogue lists fields against `fs.write` and `fs.delete` and
+    # none against the acknowledgement they share, so the ack is correlated by the envelope's
+    # `id` and carries nothing. A per-operation result field would have to differ between the
+    # two operations, which is a second message type rather than one shared ack.
+    body: []
+
+  # --- Pseudo-terminal (R7.5) ------------------------------------------------------------
+
+  - t: pty.open
+    direction: client-to-runtime
+    requirements: [R7.5]
+    body:
+      - key: 1
+        name: cols
+        type: uint
+        range: { min: 0, max: 65535 }
+      - key: 2
+        name: rows
+        type: uint
+        range: { min: 0, max: 65535 }
+
+  - t: pty.data
+    direction: both
+    requirements: [R7.5]
+    body:
+      - key: 1
+        name: data
+        type: bytes
+        carries: output
+
+  - t: pty.resize
+    direction: client-to-runtime
+    requirements: [R7.5]
+    body:
+      - key: 1
+        name: cols
+        type: uint
+        range: { min: 0, max: 65535 }
+      - key: 2
+        name: rows
+        type: uint
+        range: { min: 0, max: 65535 }
+
+  - t: pty.close
+    direction: both
+    requirements: [R7.5]
+    body: []
+
+  # --- Exposed ports (R7.6) --------------------------------------------------------------
+
+  - t: port.expose
+    direction: client-to-runtime
+    requirements: [R7.6]
+    body:
+      - key: 1
+        name: port
+        type: uint
+        range: { min: 1, max: 65535 }
+
+  - t: port.url
+    direction: runtime-to-client
+    requirements: [R7.6]
+    body:
+      - key: 1
+        name: url
+        type: text
+
+  # --- Lifecycle (R10.11) ----------------------------------------------------------------
+
+  - t: session.quiesce
+    direction: orchestrator-to-runtime
+    requirements: [R10.11]
+    body: []
+
+  # --- Errors (R8.6, R8.7) ---------------------------------------------------------------
+
+  - t: error.decode
+    direction: runtime-to-client
+    requirements: [R8.6]
+    body:
+      - key: 1
+        name: field
+        # The offending field's identity, which for an envelope key is its integer key
+        # rendered as text, for example "1" when the version itself is unreadable.
+        type: text
+      - key: 2
+        name: detail
+        type: text
+
+  - t: error.version
+    direction: runtime-to-client
+    requirements: [R8.7]
+    body:
+      - key: 1
+        name: received
+        type: uint
+        range: { min: 0, max: 18446744073709551615 }
+      - key: 2
+        name: supportedMin
+        type: uint
+        range: { min: 0, max: 18446744073709551615 }
+      - key: 3
+        name: supportedMax
+        type: uint
+        range: { min: 0, max: 18446744073709551615 }

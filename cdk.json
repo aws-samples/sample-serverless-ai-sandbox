@@ -1,0 +1,6 @@
+{
+  "app": "uv run --extra iac python -m iac.app",
+  "output": "cdk.out",
+  "versionReporting": false,
+  "context": {}
+}

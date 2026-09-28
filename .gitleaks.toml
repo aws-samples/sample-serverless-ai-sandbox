@@ -1,0 +1,7 @@
+[allowlist]
+description = "Demo tokens and example values in documentation"
+paths = [
+    '''README\.md''',
+    '''docs/python-sdk\.md''',
+    '''docs/typescript-sdk\.md''',
+]

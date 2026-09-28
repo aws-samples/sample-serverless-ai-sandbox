@@ -1,0 +1,106 @@
+# kiro-classification: public
+#
+# Root dependency manifest for the Reference_Repository (R15.8).
+# Every version is an exact pin; the resolved graph is committed in uv.lock.
+
+[project]
+name = "aws-serverless-agent-sandbox"
+version = "0.1.0"
+description = "Reference repository for the AWS serverless agent sandbox architecture"
+readme = "README.md"
+requires-python = "==3.13.*"
+license = "MIT-0"
+license-files = ["LICENSE"]
+dependencies = [
+    # Sandbox_Protocol wire format: CBOR under the RFC 8949 deterministic profile.
+    "cbor2==6.1.4",
+    # Schema validation for the tool surface and both Cost_Model files.
+    "jsonschema==4.26.0",
+    # protocol/operations.yaml and protocol/e2b-surface.yaml.
+    "pyyaml==6.0.3",
+    # Control_Plane, Reaper and Session_Orchestrator AWS calls.
+    "boto3==1.43.79",
+    # The Python Client_SDK, developed in this repository as a workspace member.
+    "agent-sandbox-sdk",
+]
+
+[project.optional-dependencies]
+# iac/ - the AWS CDK application (R15.1).
+iac = [
+    "aws-cdk-lib==2.266.0",
+    "constructs==10.8.1",
+]
+# runtime/ - the Sandbox_Runtime ASGI application and its WebSocket streaming.
+runtime = [
+    "starlette==1.6.0",
+    "uvicorn==0.52.4",
+    "websockets==17.0.1",
+]
+# agent_tools/ - the Agent_Tool_Interface, MCP over streamable HTTP.
+agent-tools = [
+    "mcp==2.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+    "pytest-timeout==2.4.0",
+    # Property-based testing for Python; not reimplemented.
+    "hypothesis==6.165.10",
+    "ruff==0.16.4",
+    "mypy==2.3.1",
+    # Type stubs for pyyaml, so `make lint` type-checks the readers of the YAML sources.
+    "types-pyyaml==6.0.12.20260815",
+    # Type stubs for jsonschema, which ships no `py.typed`. Same reason as the line above:
+    # without these, every validator call in the Cost_Model schema test is untyped, and
+    # `uv run mypy .` reports the bare import as an error.
+    "types-jsonschema==4.26.0.20260518",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.uv.workspace]
+members = ["sdk/python"]
+
+[tool.uv.sources]
+agent-sandbox-sdk = { workspace = true }
+
+# The offline test suite (R15.9, R18.17). The harness in tests/harness denies outbound
+# network access for every session, so this configuration needs no network-related option.
+[tool.pytest.ini_options]
+minversion = "9.1"
+# No testpaths: tests live both under tests/ and alongside the module they cover, and a
+# fixed list here would silently drop the co-located ones.
+addopts = "-ra --strict-markers --strict-config"
+xfail_strict = true
+# No single test in the offline suite is a long-running one; a hang is a failure.
+timeout = 300
+markers = [
+    "property: implements one numbered correctness property from design.md",
+]
+
+# Ruff's formatter, and only its formatter. The default file set it resolves includes `*.md`,
+# so `ruff format .` reaches every Markdown file in the repository and rewrites the Python
+# examples inside its code fences — which it did once to the design document, where those
+# examples are prose about a shape rather than code that is compiled or run. Excluding Markdown
+# here rather than at the top level keeps `ruff check` resolving exactly the files it does now:
+# the linter's rule set is untouched and no source file leaves either tool's scope.
+[tool.ruff.format]
+exclude = ["*.md"]
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "control_plane",
+    "egress",
+    "protocol",
+    "runtime",
+    "agent_tools",
+    "demo",
+    "iac",
+]

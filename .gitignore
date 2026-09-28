@@ -1,0 +1,58 @@
+# Lock files are deliberately NOT ignored: uv.lock and package-lock.json are committed.
+
+# Internal planning files (not for public sharing)
+.kiro/
+docs/continuation-notes.md
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+*.egg-info/
+dist/
+build/
+
+# Node
+node_modules/
+*.tsbuildinfo
+
+# CDK
+cdk.out/
+cdk.context.json
+
+# Derived artifacts
+public-variant/
+
+# Local editor and OS noise
+.DS_Store
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# PyYAML vendor (Lambda bundling artifact)
+yaml/
+_yaml/
+PyYAML-*.dist-info/
+security/
+
+# Console build artifacts (source is tracked)
+console/node_modules/
+console/.next/
+console/tsconfig.tsbuildinfo
+docs/console-tasks.md
+.holmes/
+security/deliverables/
+
+# Internal working notes (contain account IDs)
+docs/continuation-notes.md
+# Feature parity analysis (contains competitor deep-dives)
+docs/feature-parity.md
+
+# Kiro specs (internal)
+.kiro/specs/

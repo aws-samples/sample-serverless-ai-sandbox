@@ -1,0 +1,67 @@
+# kiro-classification: public
+#
+# The offline suite, run with outbound network access denied. This is how R15.9's and
+# R18.17's "no network access" clauses are enforced rather than assumed: dependencies are
+# installed from the committed lock files first, egress is then removed from the runner, and
+# the suite runs with only loopback left.
+
+name: Offline suite
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: offline-suite-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  offline-suite:
+    name: Offline suite, outbound network denied
+    # A Linux runner, because the egress denial is written against iptables, and a
+    # disposable one, because the denial rewrites the host's OUTPUT chain.
+    runs-on: ubuntu-24.04
+    env:
+      # Registered in the root conftest.py; CI has no example database to carry forward.
+      HYPOTHESIS_PROFILE: ci
+      # Install exactly what the lock file records, and fail rather than re-resolve.
+      UV_FROZEN: "1"
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@f0ec1fc3b38f5e7cd731bb6ce540c2af426746bb # v5
+        with:
+          enable-cache: true
+
+      # Toolchain versions come from the pinned .python-version and .nvmrc files (R15.8),
+      # so neither is restated here.
+      - name: Install Python
+        run: uv python install
+
+      - name: Install Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: sdk/typescript/package-lock.json
+
+      - name: Install dependencies from the lock files
+        run: make install
+
+      - name: Deny outbound network access
+        run: ./ci/deny-egress.sh
+
+      - name: Run the offline suite
+        run: make test
+        env:
+          # Nothing may be fetched now that egress is gone; a resolution attempt should
+          # fail as a missing dependency rather than as a network timeout.
+          UV_OFFLINE: "1"
+          UV_NO_SYNC: "1"

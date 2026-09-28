@@ -1,0 +1,60 @@
+{
+  "$comment": "GENERATED from protocol/generators/byte_domains.py by protocol/generators/export_byte_domains.py. Do not edit; edit byte_domains.py.",
+  "adversarialByteClasses": {
+    "lone-surrogate": [
+      "eda080",
+      "edafbf",
+      "edb080",
+      "edbfbf",
+      "eda0bdedb880"
+    ],
+    "truncated-sequence": [
+      "c3",
+      "e282",
+      "f09f92",
+      "80",
+      "bf",
+      "82ac"
+    ],
+    "overlong-encoding": [
+      "c080",
+      "c1bf",
+      "e08080",
+      "e09fbf",
+      "f0808080",
+      "f08fbfbf"
+    ],
+    "high-byte": [
+      "ff",
+      "fe",
+      "fffe",
+      "feff",
+      "ffffffff",
+      "f5f6f7f8f9fafbfcfdfeff"
+    ],
+    "nul-run": [
+      "00",
+      "0000",
+      "6265666f7265006166746572",
+      "00000000000000000000000000000000",
+      "0061006200"
+    ]
+  },
+  "cborLengthBoundaries": [
+    0,
+    1,
+    23,
+    24,
+    255,
+    256,
+    65535,
+    65536
+  ],
+  "maxOutputBytes": 65536,
+  "maxPathComponentBytes": 64,
+  "pathSeparator": 47,
+  "reservedPathComponents": [
+    "2e",
+    "2e2e"
+  ]
+}

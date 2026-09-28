@@ -1,0 +1,39 @@
+{
+  // kiro-classification: public
+  //
+  // Typechecks the TypeScript half of the shared generators on its own.
+  //
+  // These modules deliberately live under `protocol/` rather than inside the SDK package,
+  // because the design places the generators with the protocol so that a schema change updates
+  // them rather than silently narrowing them. The consequence is that they sit outside the one
+  // directory in this repository that has a `node_modules`, so `fast-check` and `@types/node`
+  // are reached through the mapping below rather than by walking up from here. The version is
+  // therefore whatever `sdk/typescript/package.json` pins and its lock file records: one pinned
+  // copy, not a second one to keep in step (R15.8).
+  //
+  // Emit is off. Nothing here is built or published; the SDK's own build compiles what it
+  // imports. Run with `npx --prefix sdk/typescript tsc --noEmit -p protocol/generators`.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      // The declaration file rather than the package directory: under `NodeNext` a mapped
+      // directory is not resolved through the package's `exports` block, so the entry point has
+      // to be named. Both are stable because both versions are pinned exactly.
+      "fast-check": ["../../sdk/typescript/node_modules/fast-check/lib/fast-check.d.ts"],
+      "vitest": ["../../sdk/typescript/node_modules/vitest/dist/index.d.ts"]
+    },
+    "typeRoots": ["../../sdk/typescript/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}

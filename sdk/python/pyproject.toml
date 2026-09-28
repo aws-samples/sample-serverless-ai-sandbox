@@ -1,0 +1,29 @@
+# kiro-classification: public
+#
+# The Python Client_SDK is published separately from the Reference_Repository, so it
+# carries its own manifest. Versions are exact pins (R15.8); the resolved graph is
+# committed in the workspace lock file at the repository root.
+
+[project]
+name = "agent-sandbox-sdk"
+version = "0.1.0"
+description = "Python Client_SDK for the AWS serverless agent sandbox"
+requires-python = "==3.13.*"
+license = "MIT-0"
+dependencies = [
+    # Sandbox_Protocol codec, shared with the Sandbox_Runtime.
+    "cbor2==6.1.4",
+    # Control_Plane calls over HTTPS.
+    "httpx==0.28.1",
+    # Streaming process output over the Sandbox_Protocol WebSocket.
+    "websockets==17.0.1",
+    # SigV4 signing of Control_Plane requests.
+    "botocore==1.43.79",
+]
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_sandbox"]

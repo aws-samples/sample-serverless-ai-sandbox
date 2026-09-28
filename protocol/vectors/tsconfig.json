@@ -1,0 +1,41 @@
+{
+  // kiro-classification: public
+  //
+  // Typechecks the TypeScript reader for the vector corpus, and the comparison that uses it.
+  //
+  // The same arrangement, and the same reasons, as `protocol/codec/tsconfig.json`: the corpus lives
+  // beside the exporter that writes it, which puts it outside the one directory in this repository
+  // that has a `node_modules`, so `vitest` and `@types/node` are reached through the mapping below
+  // rather than by walking up from here. The versions are whatever `sdk/typescript/package.json`
+  // pins and its lock file records — one pinned copy, not a second to keep in step (R15.8).
+  //
+  // `include` is this directory only. The codec is still typechecked, because tsc follows the
+  // imports; naming its directory here would additionally pull in its own test files, which need
+  // `fast-check` that nothing in this package imports. `protocol/codec/tsconfig.json` owns those.
+  //
+  // Emit is off. Nothing here is built or published.
+  // Run with `npx --prefix sdk/typescript tsc --noEmit -p protocol/vectors`.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      // The declaration files rather than the package directories: under `NodeNext` a mapped
+      // directory is not resolved through the package's `exports` block, so the entry point has to
+      // be named. Both are stable because both versions are pinned exactly.
+      "cbor-x": ["../../sdk/typescript/node_modules/cbor-x/index.d.ts"],
+      "vitest": ["../../sdk/typescript/node_modules/vitest/dist/index.d.ts"]
+    },
+    "typeRoots": ["../../sdk/typescript/node_modules/@types"],
+    "types": ["node"]
+  },
+  "include": ["*.ts"]
+}
