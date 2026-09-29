@@ -178,7 +178,8 @@ See [docs/architecture.md](docs/architecture.md) for the full component details.
 ## Prerequisites
 
 - **AWS account** with Lambda MicroVMs available (us-east-1, us-east-2, us-west-2, ap-northeast-1, eu-west-1)
-- **AWS CLI** configured with credentials (`aws sts get-caller-identity` succeeds)
+- **AWS CLI v2** or **AWS CLI v1 ≥ 1.38.0** (botocore ≥ 1.35.76) — older versions do not include the `lambda-microvms` service model. Verify with `aws lambda-microvms help`; if it returns "Invalid choice", upgrade your CLI
+- **AWS credentials** configured (`aws sts get-caller-identity` succeeds)
 - **Node.js 22+** (`node --version`)
 - **Python 3.13** (`python3 --version`)
 - **uv** package manager (`uv --version`) — install from https://docs.astral.sh/uv/
