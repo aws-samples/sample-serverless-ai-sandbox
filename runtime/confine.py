@@ -8,10 +8,6 @@ handles are resolved lazily by ``init()`` — called once by PID 1 during the
 User code runs as **uid 1000 (sandbox)** with reduced capabilities. This
 prevents overwriting root-owned system binaries, which closes the confinement
 bypass where an attacker replaces binaries that PID 1 later executes.
-
-When the process is not running as root (e.g. in CI or local development),
-confinement is skipped gracefully — the syscalls require CAP_SETUID/SETGID
-which only root has. The security boundary is the MicroVM, not the test runner.
 """
 from __future__ import annotations
 
@@ -44,9 +40,6 @@ def init() -> None:
     """Resolve ctypes objects. Call once from PID 1 before user code runs.
 
     PCSR Finding 6: raises on failure — a sandbox that cannot confine must not execute.
-
-    When not running as root, initialization succeeds but ``confine_child_process``
-    will skip the actual confinement — the syscalls require root capabilities.
     """
     global _libc, _ready, _CapHeader, _CapData  # noqa: PLW0603
     import ctypes
@@ -80,12 +73,6 @@ def confine_child_process() -> None:
 
     PCSR Finding 6: every failure is fatal — a child that cannot be confined must not run.
 
-    When not running as root, confinement is skipped. The UID switch and capability
-    drop require CAP_SETUID/SETGID which are only available to root. In production,
-    the runtime runs as root inside a Firecracker MicroVM. In CI or local development,
-    the MicroVM boundary is absent and confinement would fail — the tests exercise
-    process management, not the confinement layer itself.
-
     Execution order (between fork and execve):
     1. Set supplementary groups, GID, UID (must happen before cap drop — setuid needs CAP_SETUID)
     2. Set PR_SET_NO_NEW_PRIVS (prevents execve from restoring caps)
@@ -103,11 +90,6 @@ def confine_child_process() -> None:
 
     if not _ready or _libc is None:
         raise RuntimeError("Confinement not initialized — refusing to execute unconfined")
-
-    # Skip confinement when not running as root — the syscalls require
-    # CAP_SETUID/SETGID which only root has.
-    if os.getuid() != 0:
-        return
 
     # Step 1: Switch to sandbox user (must happen BEFORE we drop CAP_SETUID/SETGID)
     try:
