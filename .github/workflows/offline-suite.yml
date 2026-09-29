@@ -26,6 +26,7 @@ jobs:
     # A Linux runner, because the egress denial is written against iptables, and a
     # disposable one, because the denial rewrites the host's OUTPUT chain.
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     env:
       # Registered in the root conftest.py; CI has no example database to carry forward.
       HYPOTHESIS_PROFILE: ci
@@ -38,7 +39,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v10.2.0
         with:
-          enable-cache: true
+          enable-cache: false
 
       # Toolchain versions come from the pinned .python-version and .nvmrc files (R15.8),
       # so neither is restated here.
@@ -49,11 +50,17 @@ jobs:
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
         with:
           node-version-file: .nvmrc
-          cache: npm
-          cache-dependency-path: sdk/typescript/package-lock.json
 
-      - name: Install dependencies from the lock files
-        run: make install
+      - name: Install Python dependencies
+        timeout-minutes: 2
+        run: uv sync --all-extras --frozen
+
+      # npm ci on GitHub Actions runners hangs intermittently (actions/setup-node#1097,
+      # #1297). The 60-second timeout ensures a hung install fails fast and is retried
+      # rather than burning the full job budget. --verbose surfaces where the hang occurs.
+      - name: Install TypeScript dependencies
+        timeout-minutes: 2
+        run: timeout 60 npm ci --verbose --prefix sdk/typescript || timeout 60 npm ci --verbose --prefix sdk/typescript
 
       - name: Deny outbound network access
         run: ./ci/deny-egress.sh
@@ -65,3 +72,14 @@ jobs:
           # fail as a missing dependency rather than as a network timeout.
           UV_OFFLINE: "1"
           UV_NO_SYNC: "1"
+
+      # Restore egress so post-job cleanup (log upload, result reporting) can reach
+      # GitHub's infrastructure. Without this, the iptables REJECT rules block the
+      # new DNS lookups and connections the runner needs for cleanup, causing a timeout.
+      - name: Restore outbound network access
+        if: always()
+        run: |
+          sudo iptables --flush OUTPUT
+          sudo iptables --policy OUTPUT ACCEPT
+          sudo ip6tables --flush OUTPUT
+          sudo ip6tables --policy OUTPUT ACCEPT
