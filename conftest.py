@@ -53,3 +53,33 @@ def deny_outbound_network() -> Iterator[NetworkGuard]:
         yield guard
     finally:
         guard.uninstall()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _disable_confinement_when_unprivileged() -> Iterator[None]:
+    """Replace confine_child_process with a no-op when not running as root.
+
+    The confinement preexec_fn (PCSR Finding 6) calls setuid, setgid, and capset,
+    which require root. In production the runtime runs as root inside a Firecracker
+    MicroVM; on CI runners and local dev the process is unprivileged. Patching the
+    module attribute here lets the lazy imports in process.py and terminal.py pick
+    up the no-op, so process-management tests exercise the real spawning logic
+    without the confinement layer that only works inside a MicroVM.
+
+    Production code is untouched — this patch lives entirely in test infrastructure.
+    """
+    if os.getuid() == 0:
+        yield
+        return
+
+    import runtime.confine as _confine_mod
+
+    # init() resolves ctypes handles; safe even without root.
+    _confine_mod.init()
+
+    original = _confine_mod.confine_child_process
+    _confine_mod.confine_child_process = lambda: None  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        _confine_mod.confine_child_process = original
