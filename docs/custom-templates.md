@@ -240,3 +240,32 @@ sandboxes can be provisioned.
 Multiple image versions can coexist. To switch between them, redeploy with a different
 `imageVersion` value. Existing running sandboxes are not affected — only new sessions
 use the updated image.
+
+## Debugging with shell access
+
+You can get an interactive shell inside a running MicroVM for debugging custom images.
+This uses the Lambda MicroVMs `create-microvm-shell-auth-token` API, which requires the
+**SHELL_INGRESS connector** to be enabled on the MicroVM.
+
+### Prerequisites
+
+The SHELL_INGRESS connector must be configured when creating the MicroVM. Without it,
+`create-microvm-shell-auth-token` returns a `ValidationException`. This connector is a
+Lambda MicroVMs service feature — it is not configured by this repository's CDK stacks
+and must be enabled separately if you need interactive shell access.
+
+### Getting a shell token
+
+```bash
+# Get a shell auth token for a running MicroVM
+aws lambda-microvms create-microvm-shell-auth-token \
+    --microvm-id <MICROVM_ID> \
+    --region us-east-1
+```
+
+The token is short-lived and grants SSH-like access to the MicroVM. Use it with the
+Lambda MicroVMs shell client to connect.
+
+> **Note**: Shell access is intended for debugging custom images during development,
+> not for production use. The sandbox SDK's `execute()` method is the supported way
+> to run commands inside a session.

@@ -192,3 +192,39 @@ sandbox = session.connection
 sandbox.execute(["echo", "turn 1"])
 # ... later, same affinity_key reconnects to the same sandbox
 ```
+
+## Using the SDK in AWS Lambda
+
+The Python SDK is not published to PyPI. To use it in an AWS Lambda function, build a
+Lambda layer containing the SDK and its dependencies.
+
+### Build the layer
+
+Run on a Linux x86_64 machine (or use Docker) to ensure the correct binary wheels:
+
+```bash
+mkdir -p layer/python
+uv pip install --target layer/python \
+    ./sdk/python \
+    cbor2==6.1.4 httpx==0.28.1 websockets==17.0.1 \
+    --exclude botocore --exclude boto3 --exclude urllib3
+cd layer && zip -r ../agent-sandbox-sdk-layer.zip python/
+```
+
+### Publish and attach
+
+```bash
+aws lambda publish-layer-version \
+    --layer-name agent-sandbox-sdk \
+    --zip-file fileb://agent-sandbox-sdk-layer.zip \
+    --compatible-runtimes python3.13
+
+# Add the returned layer ARN to your Lambda function configuration
+```
+
+### Notes
+
+- `cbor2` includes a C extension (`manylinux_2_28` wheel). Build the layer on Linux x86_64
+  or in a container like `public.ecr.aws/lambda/python:3.13` to get the right wheel.
+- `botocore` and `boto3` are excluded because Lambda's runtime already provides them.
+- The layer adds ~5-10 MB to your function deployment.
