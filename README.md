@@ -566,6 +566,7 @@ read/write files, and manage sessions without ever seeing a credential or sessio
 curl -X POST https://xxx.execute-api.us-east-1.amazonaws.com/tool \
   --aws-sigv4 "aws:amz:us-east-1:execute-api" \
   -H "Content-Type: application/json" \
+  -H "x-session-key: my-conversation-001" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
@@ -574,6 +575,12 @@ curl -X POST https://xxx.execute-api.us-east-1.amazonaws.com/tool \
 The tools use the MCP JSON-RPC 2.0 protocol. Session management is automatic — the MCP
 server provisions a sandbox on first tool call and reuses it for subsequent calls in the
 same session. No credentials are returned to the calling model.
+
+> **Important**: Include the `x-session-key` header on every tool call. The session key
+> ties consecutive calls to the same sandbox. Without it, each call provisions a new
+> MicroVM — files written by one call won't be visible to the next, and you'll incur
+> unnecessary MicroVM costs. Use a stable identifier like a conversation ID or user
+> session ID.
 
 ## Agent Sandbox Guide
 
