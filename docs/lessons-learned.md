@@ -192,3 +192,24 @@ envelope = json.loads(payload)
 inner = json.loads(envelope["runHookPayload"])  # double-deserialize
 fs_id = inner.get("s3filesFileSystemId")
 ```
+
+---
+
+## 11. MCP tools without a session key provision a new MicroVM per call
+
+**Problem**: Calling the MCP tools endpoint (`POST /tool`) without the
+`x-session-key` header caused every tool call to provision a separate MicroVM.
+A sequence of `write_file` then `read_file` hit different sandboxes, so the
+read returned an empty error — the file didn't exist on that VM.
+
+**Root cause**: The MCP handler uses the `x-session-key` header (or
+`x-mcp-session-id`) to look up a cached session. Without it, `session_key` is
+empty, the cache is never consulted, and `_create_session()` provisions a new
+MicroVM on every invocation. The in-memory Lambda cache only works within the
+same execution environment, and even then only if the key is present.
+
+**Fix**: Always include `x-session-key: <stable-identifier>` (conversation ID,
+user session ID, etc.) on every MCP tool call. With the header present, the
+handler caches the session and subsequent calls reuse the same sandbox. All six
+tools then work correctly against the same MicroVM.
+
