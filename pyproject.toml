@@ -38,7 +38,7 @@ runtime = [
 ]
 # agent_tools/ - the Agent_Tool_Interface, MCP over streamable HTTP.
 agent-tools = [
-    "mcp==2.1.0",
+    "mcp==2.2.0",
 ]
 
 [dependency-groups]
