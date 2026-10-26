@@ -53,9 +53,10 @@ update will allow specifying the image per session at creation time.
 
 ## Available templates
 
-| Template | Use case | Adds |
-|----------|----------|------|
-| [software-factory](software-factory/) | AI coding agents (opencode, Claude Code) | Node.js 22, npm, ripgrep, opencode, CDK CLI, Bedrock proxy adapter |
+| Template | Use case | Adds | Example |
+|----------|----------|------|---------|
+| default (built-in) | General-purpose sandbox | Python 3.13, Git, curl, jq (built by `scripts/build-image.py`) | [01-05](../examples/) |
+| [software-factory](software-factory/) | AI coding agents (opencode, Claude Code) | Node.js 22, npm, ripgrep, opencode, CDK CLI, Bedrock proxy adapter | [06](../examples/06_software_factory.py) |
 
 ## Creating a new template
 
