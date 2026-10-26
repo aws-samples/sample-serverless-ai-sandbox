@@ -269,3 +269,15 @@ Lambda MicroVMs shell client to connect.
 > **Note**: Shell access is intended for debugging custom images during development,
 > not for production use. The sandbox SDK's `execute()` method is the supported way
 > to run commands inside a session.
+
+## Pre-built templates
+
+The `templates/` directory contains ready-to-use MicroVM image templates for common
+use cases. Each template includes a Dockerfile, documentation, and any additional
+files needed.
+
+| Template | Use case | What it adds |
+|----------|----------|--------------|
+| [software-factory](../templates/software-factory/) | AI coding agents | Node.js 22, opencode, CDK, ripgrep, Bedrock proxy adapter |
+
+See `templates/README.md` for how to build and deploy templates.
