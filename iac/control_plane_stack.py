@@ -169,6 +169,24 @@ class ControlPlaneStack(cdk.Stack):
         self.reaper_schedule = self._reaper_schedule()
         self.dashboard = self._dashboard()
 
+        # The Reaper sends lifecycle callbacks when reaping expired sessions.
+        # Uses the same wildcard ARN pattern as the task and API handler grants.
+        sm_arn_for_reaper = self.format_arn(
+            service="states",
+            resource="stateMachine",
+            resource_name="*",
+            arn_format=cdk.ArnFormat.COLON_RESOURCE_NAME,
+        )
+        self.reaper_function.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=[
+                    "states:SendTaskSuccess",
+                    "states:SendTaskFailure",
+                ],
+                resources=[sm_arn_for_reaper],
+            )
+        )
+
         # Grant the orchestrator function permission to start executions on the state machine.
         # Uses a wildcard-scoped ARN instead of ``self.state_machine.attr_arn`` to avoid a
         # CloudFormation circular dependency: the state machine definition references the task
@@ -181,7 +199,11 @@ class ControlPlaneStack(cdk.Stack):
         )
         self.task_function.add_to_role_policy(
             iam.PolicyStatement(
-                actions=["states:StartExecution"],
+                actions=[
+                    "states:StartExecution",
+                    "states:SendTaskSuccess",
+                    "states:SendTaskFailure",
+                ],
                 resources=[sm_arn_pattern],
             )
         )
@@ -670,10 +692,15 @@ class ControlPlaneStack(cdk.Stack):
         )
         self.api_handler.add_to_role_policy(
             iam.PolicyStatement(
-                actions=["states:StartExecution"],
+                actions=[
+                    "states:StartExecution",
+                    "states:SendTaskSuccess",
+                    "states:SendTaskFailure",
+                ],
                 resources=[sm_arn_pattern],
             )
         )
+
 
         return machine
 
