@@ -9,6 +9,7 @@
 import type { Auth } from './auth.js';
 import {
   SandboxConnection,
+  SandboxProtocolError,
   type CommandResult,
   type FileEntry,
   type ConnectionDescriptor,
@@ -33,6 +34,8 @@ export interface SandboxSessionOptions {
   apiUrl: string;
   auth: Auth;
   sessionData?: SessionData;
+  /** Whether to auto-resume on 502/503 from a suspended sandbox. */
+  autoResume?: boolean;
 }
 
 /**
@@ -44,6 +47,7 @@ export class SandboxSession {
   readonly #sessionId: string;
   readonly #apiUrl: string;
   readonly #auth: Auth;
+  readonly #autoResume: boolean;
   #sessionData: SessionData;
   #sandbox: SandboxConnection | null = null;
 
@@ -51,6 +55,7 @@ export class SandboxSession {
     this.#sessionId = options.sessionId;
     this.#apiUrl = options.apiUrl;
     this.#auth = options.auth;
+    this.#autoResume = options.autoResume ?? false;
     this.#sessionData = options.sessionData ?? {};
   }
 
@@ -194,10 +199,9 @@ export class SandboxSession {
       timeoutSeconds?: number;
     },
   ): Promise<CommandResult> {
-    const sandbox = this.#getSandbox();
     const argv =
       typeof command === 'string' ? ['sh', '-c', command] : command;
-    return sandbox.execute(argv, options);
+    return this.#sandboxRequest(() => this.#getSandbox().execute(argv, options));
   }
 
   /**
@@ -212,12 +216,11 @@ export class SandboxSession {
     content: string | Uint8Array,
     options?: { mode?: number },
   ): Promise<void> {
-    const sandbox = this.#getSandbox();
     const data =
       typeof content === 'string'
         ? new TextEncoder().encode(content)
         : content;
-    return sandbox.writeFile(path, data, options);
+    return this.#sandboxRequest(() => this.#getSandbox().writeFile(path, data, options));
   }
 
   /**
@@ -226,9 +229,10 @@ export class SandboxSession {
    * @param path - Absolute path inside the Sandbox.
    */
   async readFile(path: string): Promise<string> {
-    const sandbox = this.#getSandbox();
-    const bytes = await sandbox.readFile(path);
-    return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    return this.#sandboxRequest(async () => {
+      const bytes = await this.#getSandbox().readFile(path);
+      return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    });
   }
 
   /**
@@ -237,8 +241,7 @@ export class SandboxSession {
    * @param path - Absolute path inside the Sandbox.
    */
   async readFileBytes(path: string): Promise<Uint8Array> {
-    const sandbox = this.#getSandbox();
-    return sandbox.readFile(path);
+    return this.#sandboxRequest(() => this.#getSandbox().readFile(path));
   }
 
   /**
@@ -247,8 +250,7 @@ export class SandboxSession {
    * @param path - Directory path inside the Sandbox (default: `/tmp`).
    */
   async listFiles(path: string = '/tmp'): Promise<FileEntry[]> {
-    const sandbox = this.#getSandbox();
-    return sandbox.listFiles(path);
+    return this.#sandboxRequest(() => this.#getSandbox().listFiles(path));
   }
 
   /**
@@ -261,8 +263,7 @@ export class SandboxSession {
     path: string,
     options?: { recursive?: boolean },
   ): Promise<void> {
-    const sandbox = this.#getSandbox();
-    return sandbox.deleteFile(path, options);
+    return this.#sandboxRequest(() => this.#getSandbox().deleteFile(path, options));
   }
 
   // ------------------------------------------------------------------
@@ -280,6 +281,32 @@ export class SandboxSession {
   // ------------------------------------------------------------------
   // Internal helpers
   // ------------------------------------------------------------------
+
+
+  /**
+   * Call a sandbox operation, auto-resuming on 502/503 if suspended.
+   *
+   * When auto_resume is enabled and the MicroVM returns 502 or 503, the SDK
+   * checks the session state. If SUSPENDED, it resumes, waits for ready,
+   * refreshes the connection, and retries the operation once.
+   */
+  async #sandboxRequest<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (err) {
+      if (!this.#autoResume) throw err;
+      if (!(err instanceof SandboxProtocolError)) throw err;
+      if (err.status !== 502 && err.status !== 503) throw err;
+      // Check session state via control plane.
+      await this.refresh();
+      if (this.lifecycleState !== 'SUSPENDED') throw err;
+      // Resume and retry.
+      await this.resume();
+      await this.waitReady({ timeout: 60_000 });
+      await this.refreshConnection();
+      return operation();
+    }
+  }
 
   /** Return the sandbox connection, creating it lazily from the connection descriptor. */
   #getSandbox(): SandboxConnection {

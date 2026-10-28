@@ -876,6 +876,8 @@ class _HttpMicroVmClient:
 
     def _request(self, method: str, path: str, body: Any | None = None) -> Mapping[str, Any]:
         import json as _json
+        import random
+        import time as _time
         import urllib.error
         import urllib.request
 
@@ -887,35 +889,53 @@ class _HttpMicroVmClient:
         data = _json.dumps(body, default=lambda o: base64.b64encode(o).decode("ascii") if isinstance(o, bytes) else str(o)).encode() if body else None
         headers: dict[str, str] = {"Content-Type": "application/json"} if data else {}
 
-        aws_req = botocore.awsrequest.AWSRequest(
-            method=method, url=url, data=data, headers=headers
-        )
         session = botocore.session.get_session()
         creds = session.get_credentials().get_frozen_credentials()
-        botocore.auth.SigV4Auth(creds, self._SERVICE, self._region).add_auth(aws_req)
 
-        req = urllib.request.Request(
-            url, data=data, headers=dict(aws_req.headers), method=method
-        )
-        try:
-            with urllib.request.urlopen(req) as resp: # nosec B310 # nosemgrep: dynamic-urllib-use-detected
-                return _json.loads(resp.read())  # type: ignore[no-any-return]
-        except urllib.error.HTTPError as exc:
-            error_body = exc.read().decode(errors="replace")
-            try:
-                error_data = _json.loads(error_body)
-            except _json.JSONDecodeError:
-                error_data = {"message": error_body}
-            error_code = (
-                error_data.get("__type", "").rsplit("#", 1)[-1]
-                or error_data.get("error", "ServiceError")
+        _RETRYABLE_STATUSES = (400, 429, 500, 502, 503)
+        _MAX_RETRIES = 3
+        _BASE_DELAY = 1.0
+        _MAX_DELAY = 3.0
+        last_exc: _HttpApiError | None = None
+
+        for attempt in range(_MAX_RETRIES + 1):
+            # Re-sign on each attempt — date header must be fresh.
+            aws_req = botocore.awsrequest.AWSRequest(
+                method=method, url=url, data=data, headers=headers
             )
-            raise _HttpApiError(
-                exc.code,
-                error_code,
-                error_data.get("message") or error_data.get("Message") or str(exc),
-            ) from exc
+            botocore.auth.SigV4Auth(creds, self._SERVICE, self._region).add_auth(aws_req)
+            req = urllib.request.Request(
+                url, data=data, headers=dict(aws_req.headers), method=method
+            )
+            try:
+                with urllib.request.urlopen(req) as resp:  # nosec B310 # nosemgrep: dynamic-urllib-use-detected
+                    return _json.loads(resp.read())  # type: ignore[no-any-return]
+            except urllib.error.HTTPError as exc:
+                error_body = exc.read().decode(errors="replace")
+                try:
+                    error_data = _json.loads(error_body)
+                except _json.JSONDecodeError:
+                    error_data = {"message": error_body}
+                error_code = (
+                    error_data.get("__type", "").rsplit("#", 1)[-1]
+                    or error_data.get("error", "ServiceError")
+                )
+                last_exc = _HttpApiError(
+                    exc.code,
+                    error_code,
+                    error_data.get("message") or error_data.get("Message") or str(exc),
+                )
+                last_exc.__cause__ = exc
 
+                if exc.code not in _RETRYABLE_STATUSES:
+                    raise last_exc from exc
+
+                if attempt < _MAX_RETRIES:
+                    delay = min(_BASE_DELAY * (attempt + 1), _MAX_DELAY)
+                    _time.sleep(delay)
+
+        assert last_exc is not None
+        raise last_exc
 
 def _build_client(service_name: str, region_name: str | None) -> Any:
     """Build a boto3 client on first use.

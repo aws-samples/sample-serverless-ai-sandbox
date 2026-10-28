@@ -59,6 +59,7 @@ class SandboxSession:
     auth: Auth
     session_data: dict[str, Any] = field(default_factory=dict)
     http_client: httpx.Client | None = None
+    auto_resume: bool = False
 
     _sandbox: SandboxConnection | None = field(default=None, init=False, repr=False)
 
@@ -181,12 +182,13 @@ class SandboxSession:
         CommandResult
             The exit code, stdout, and stderr.
         """
-        sandbox = self._get_sandbox()
         if isinstance(command, str):
             argv = ["sh", "-c", command]
         else:
             argv = command
-        return sandbox.execute(argv, cwd=cwd, env=env, timeout_seconds=timeout_seconds)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().execute(argv, cwd=cwd, env=env, timeout_seconds=timeout_seconds)
+        )
 
     def write_file(self, path: str, content: str | bytes, *, mode: int = 0o644) -> None:
         """Write a file inside the sandbox.
@@ -200,9 +202,10 @@ class SandboxSession:
         mode:
             POSIX permission bits (default: 0o644).
         """
-        sandbox = self._get_sandbox()
         data = content.encode() if isinstance(content, str) else content
-        sandbox.write_file(path, data, mode=mode)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().write_file(path, data, mode=mode)
+        )
 
     def read_file(self, path: str) -> str:
         """Read a file from the sandbox as a string.
@@ -217,8 +220,9 @@ class SandboxSession:
         str
             The file content (decoded from bytes with replacement for invalid UTF-8).
         """
-        sandbox = self._get_sandbox()
-        return sandbox.read_file(path).decode(errors="replace")
+        return self._sandbox_request(
+            lambda: self._get_sandbox().read_file(path).decode(errors="replace")
+        )
 
     def read_file_bytes(self, path: str) -> bytes:
         """Read a file from the sandbox as raw bytes.
@@ -233,8 +237,9 @@ class SandboxSession:
         bytes
             The raw file content.
         """
-        sandbox = self._get_sandbox()
-        return sandbox.read_file(path)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().read_file(path)
+        )
 
     def list_files(self, path: str = "/tmp") -> list[FileEntry]:  # nosec B108
         """List files and directories at the given path.
@@ -249,8 +254,9 @@ class SandboxSession:
         list[FileEntry]
             The directory entries.
         """
-        sandbox = self._get_sandbox()
-        return sandbox.list_files(path)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().list_files(path)
+        )
 
     def delete_file(self, path: str, *, recursive: bool = False) -> None:
         """Delete a file or directory from the sandbox.
@@ -262,8 +268,9 @@ class SandboxSession:
         recursive:
             If True, delete directories recursively.
         """
-        sandbox = self._get_sandbox()
-        sandbox.delete_file(path, recursive=recursive)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().delete_file(path, recursive=recursive)
+        )
 
     # ------------------------------------------------------------------
     # Filesystem helpers
@@ -281,8 +288,9 @@ class SandboxSession:
         -------
         bool
         """
-        sandbox = self._get_sandbox()
-        return sandbox.file_exists(path)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().file_exists(path)
+        )
 
     def file_info(self, path: str) -> FileInfo:
         """Get metadata about a file or directory.
@@ -296,8 +304,9 @@ class SandboxSession:
         -------
         FileInfo
         """
-        sandbox = self._get_sandbox()
-        return sandbox.file_info(path)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().file_info(path)
+        )
 
     def make_dir(self, path: str, *, parents: bool = True) -> None:
         """Create a directory inside the sandbox.
@@ -309,8 +318,9 @@ class SandboxSession:
         parents:
             If ``True``, create parent directories as needed.
         """
-        sandbox = self._get_sandbox()
-        sandbox.make_dir(path, parents=parents)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().make_dir(path, parents=parents)
+        )
 
     def rename_file(self, old_path: str, new_path: str) -> None:
         """Rename or move a file or directory inside the sandbox.
@@ -322,8 +332,9 @@ class SandboxSession:
         new_path:
             Destination absolute path.
         """
-        sandbox = self._get_sandbox()
-        sandbox.rename_file(old_path, new_path)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().rename_file(old_path, new_path)
+        )
 
     # ------------------------------------------------------------------
     # Recursive directory listing
@@ -343,8 +354,9 @@ class SandboxSession:
         -------
         list[FileEntry]
         """
-        sandbox = self._get_sandbox()
-        return sandbox.list_files_recursive(path, depth=depth)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().list_files_recursive(path, depth=depth)
+        )
 
     # ------------------------------------------------------------------
     # Batch file write
@@ -365,8 +377,9 @@ class SandboxSession:
         mode:
             POSIX permission bits (default: 0o644).
         """
-        sandbox = self._get_sandbox()
-        sandbox.write_files(files, mode=mode)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().write_files(files, mode=mode)
+        )
 
     # ------------------------------------------------------------------
     # Background process execution
@@ -394,8 +407,9 @@ class SandboxSession:
         -------
         ProcessHandle
         """
-        sandbox = self._get_sandbox()
-        return sandbox.execute_background(command, cwd=cwd, env=env)
+        return self._sandbox_request(
+            lambda: self._get_sandbox().execute_background(command, cwd=cwd, env=env)
+        )
 
     # ------------------------------------------------------------------
     # Streaming execution
@@ -432,18 +446,19 @@ class SandboxSession:
         -------
         CommandResult
         """
-        sandbox = self._get_sandbox()
         if isinstance(command, str):
             argv = ["sh", "-c", command]
         else:
             argv = command
-        return sandbox.execute_stream(
-            argv,
-            cwd=cwd,
-            env=env,
-            timeout_seconds=timeout_seconds,
-            on_stdout=on_stdout,
-            on_stderr=on_stderr,
+        return self._sandbox_request(
+            lambda: self._get_sandbox().execute_stream(
+                argv,
+                cwd=cwd,
+                env=env,
+                timeout_seconds=timeout_seconds,
+                on_stdout=on_stdout,
+                on_stderr=on_stderr,
+            )
         )
 
     # ------------------------------------------------------------------
@@ -457,8 +472,9 @@ class SandboxSession:
         -------
         Metrics
         """
-        sandbox = self._get_sandbox()
-        return sandbox.get_metrics()
+        return self._sandbox_request(
+            lambda: self._get_sandbox().get_metrics()
+        )
 
     # ------------------------------------------------------------------
     # PTY session
@@ -584,6 +600,32 @@ class SandboxSession:
             conn, http_client=self.http_client,
         )
         return self._sandbox
+
+
+    def _sandbox_request(self, operation: Any) -> Any:
+        """Call a sandbox operation, auto-resuming on 502/503 if the session is suspended.
+
+        When *auto_resume* is enabled and the MicroVM returns 502 or 503, the
+        SDK checks the session state via the Control Plane.  If the session is
+        ``SUSPENDED`` it resumes it, waits for it to become ready, refreshes
+        the connection descriptor, and retries the operation once.
+        """
+        try:
+            return operation()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in (502, 503):
+                raise
+            if not self.auto_resume:
+                raise
+            # Ask the control plane what the real state is.
+            self.refresh()
+            if self.lifecycle_state != "SUSPENDED":
+                raise
+            # The MicroVM is suspended — resume and retry.
+            self.resume()
+            self.wait_ready(timeout=60)
+            self.refresh_connection()
+            return operation()
 
     #: Status codes that trigger a retry with exponential backoff.
     _RETRYABLE_STATUS_CODES: tuple[int, ...] = (429, 502, 503)

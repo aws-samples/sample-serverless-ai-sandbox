@@ -53,6 +53,7 @@ class AsyncSandboxSession:
     _session_data: dict[str, Any] | None = None
     _http_client: httpx.AsyncClient | None = None
     _sandbox: SandboxConnection | None = None
+    auto_resume: bool = False
 
     @property
     def connection(self) -> dict[str, Any] | None:
@@ -111,6 +112,24 @@ class AsyncSandboxSession:
         )
         return self._sandbox
 
+    async def _sandbox_request(self, operation):
+        """Call a sandbox operation, auto-resuming on 502/503 if suspended."""
+        try:
+            return await operation()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in (502, 503):
+                raise
+            if not self.auto_resume:
+                raise
+            await self.refresh()
+            if self.lifecycle_state != "SUSPENDED":
+                raise
+            await self.resume()
+            await self.wait_ready(timeout=60)
+            await self.refresh_connection()
+            self._sandbox = None
+            return await operation()
+
     async def execute(
         self,
         command: list[str] | str,
@@ -119,35 +138,41 @@ class AsyncSandboxSession:
         env: dict[str, str] | None = None,
         timeout_seconds: int = 60,
     ) -> CommandResult:
-        sandbox = self._get_sandbox()
         if isinstance(command, str):
             command = ["sh", "-c", command]
-        return await asyncio.to_thread(
-            sandbox.execute, command, cwd=cwd, env=env or {}, timeout_seconds=timeout_seconds
-        )
+        async def op():
+            return await asyncio.to_thread(
+                self._get_sandbox().execute, command, cwd=cwd, env=env or {}, timeout_seconds=timeout_seconds
+            )
+        return await self._sandbox_request(op)
 
     async def write_file(self, path: str, content: str | bytes, *, mode: int = 0o644) -> None:
-        sandbox = self._get_sandbox()
         # Convert string to bytes for the CBOR protocol
         if isinstance(content, str):
             content = content.encode("utf-8")
-        await asyncio.to_thread(sandbox.write_file, path, content, mode=mode)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().write_file, path, content, mode=mode)
+        await self._sandbox_request(op)
 
     async def read_file(self, path: str) -> str:
-        sandbox = self._get_sandbox()
-        return await asyncio.to_thread(sandbox.read_file, path)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().read_file, path)
+        return await self._sandbox_request(op)
 
     async def read_file_bytes(self, path: str) -> bytes:
-        sandbox = self._get_sandbox()
-        return await asyncio.to_thread(sandbox.read_file_bytes, path)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().read_file_bytes, path)
+        return await self._sandbox_request(op)
 
     async def list_files(self, path: str = "/tmp") -> list[FileEntry]:  # nosec B108
-        sandbox = self._get_sandbox()
-        return await asyncio.to_thread(sandbox.list_files, path)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().list_files, path)
+        return await self._sandbox_request(op)
 
     async def delete_file(self, path: str, *, recursive: bool = False) -> None:
-        sandbox = self._get_sandbox()
-        await asyncio.to_thread(sandbox.delete_file, path, recursive=recursive)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().delete_file, path, recursive=recursive)
+        await self._sandbox_request(op)
 
     # --- Control plane requests ---
 
@@ -174,12 +199,8 @@ class AsyncSandboxSession:
             client = self._http_client or httpx.AsyncClient(timeout=30)
             if method == "GET":
                 resp = await client.get(url, headers=headers)
-            elif method == "POST":
-                resp = await client.post(url, content=body_bytes, headers=headers)
-            elif method == "DELETE":
-                resp = await client.delete(url, headers=headers)
             else:
-                resp = await client.request(method, url, content=body_bytes, headers=headers)
+                resp = await client.post(url, content=body_bytes, headers=headers)
 
             if resp.status_code not in self._RETRYABLE_STATUS_CODES:
                 resp.raise_for_status()
@@ -196,6 +217,84 @@ class AsyncSandboxSession:
 
         assert last_exc is not None
         raise last_exc
+
+
+class AsyncSandboxClient:
+    """Async client for the AWS Serverless Agent Sandbox.
+
+    Usage::
+
+        async with AsyncSandboxClient(api_url="...", region="us-east-1") as client:
+            session = await client.create_session(persistence=True)
+            await session.wait_ready()
+            result = await session.execute(["echo", "hello"])
+    """
+
+    def __init__(
+        self,
+        *,
+        api_url: str,
+        region: str = "us-east-1",
+        token: str | None = None,
+    ) -> None:
+        self.api_url = api_url.rstrip("/")
+        self._region = region
+        self._auth: Auth = BearerAuth(token) if token else SigV4Auth(region)
+        self._http_client = httpx.AsyncClient(timeout=30)
+
+    async def create_session(
+        self,
+        *,
+        max_duration_seconds: int = 3600,
+        idle_seconds: int = 300,
+        suspended_seconds: int = 600,
+        auto_resume: bool = True,
+        persistence: bool = False,
+        affinity_key: str = "",
+    ) -> AsyncSandboxSession:
+        body: dict[str, object] = {
+            "maxDurationSeconds": max_duration_seconds,
+            "idleSeconds": idle_seconds,
+            "suspendedSeconds": suspended_seconds,
+            "autoResume": auto_resume,
+        }
+        if persistence:
+            body["persistence"] = True
+        if affinity_key:
+            body["affinityKey"] = affinity_key
+
+        session = AsyncSandboxSession(
+            session_id="",
+            api_url=self.api_url,
+            _auth=self._auth,
+            _http_client=self._http_client,
+            auto_resume=auto_resume,
+        )
+        data = await session._cp_request("POST", "/sessions", body)
+        session.session_id = data.get("sessionId", "")
+        session.lifecycle_state = data.get("lifecycleState", "UNKNOWN")
+        session._session_data = data
+        return session
+
+    async def get_session(self, session_id: str) -> AsyncSandboxSession:
+        session = AsyncSandboxSession(
+            session_id=session_id,
+            api_url=self.api_url,
+            _auth=self._auth,
+            _http_client=self._http_client,
+        )
+        await session.refresh()
+        return session
+
+    async def list_sessions(self) -> list[dict[str, Any]]:
+        session = AsyncSandboxSession(
+            session_id="",
+            api_url=self.api_url,
+            _auth=self._auth,
+            _http_client=self._http_client,
+        )
+        data = await session._cp_request("GET", "/sessions")
+        return data.get("sessions", [])
 
     async def close(self) -> None:
         if self._http_client:
