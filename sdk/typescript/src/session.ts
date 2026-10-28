@@ -299,7 +299,10 @@ export class SandboxSession {
     return this.#sandbox;
   }
 
-  /** Send an authenticated request to the Control Plane API. */
+  /**
+   * Send an authenticated request to the Control Plane API.
+   * Retries with exponential backoff on 429, 502, and 503.
+   */
   async #cpRequest(
     method: string,
     path: string,
@@ -311,26 +314,45 @@ export class SandboxSession {
     const bodyBytes =
       data !== undefined ? new TextEncoder().encode(data) : undefined;
 
-    let headers: Record<string, string> = {};
-    if (data !== undefined) {
-      headers['Content-Type'] = 'application/json';
-    }
+    const RETRYABLE = new Set([429, 502, 503]);
+    const MAX_RETRIES = 5;
+    const BASE_DELAY = 1000;
+    const MAX_DELAY = 30000;
+    let lastError: Error | null = null;
 
-    headers = await this.#auth.apply(method, url, headers, bodyBytes);
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      let headers: Record<string, string> = {};
+      if (data !== undefined) {
+        headers['Content-Type'] = 'application/json';
+      }
+      headers = await this.#auth.apply(method, url, headers, bodyBytes);
+      const resp = await fetch(url, {
+        method,
+        headers,
+        body: data,
+      });
 
-    const resp = await fetch(url, {
-      method,
-      headers,
-      body: data,
-    });
+      if (!RETRYABLE.has(resp.status)) {
+        if (!resp.ok) {
+          throw new Error(
+            `Control Plane request failed: ${method} ${path} → ${resp.status} ${resp.statusText}`,
+          );
+        }
+        return (await resp.json()) as SessionData;
+      }
 
-    if (!resp.ok) {
-      throw new Error(
+      // Retryable error
+      lastError = new Error(
         `Control Plane request failed: ${method} ${path} → ${resp.status} ${resp.statusText}`,
       );
+
+      if (attempt < MAX_RETRIES) {
+        const delay = Math.min(BASE_DELAY * 2 ** attempt + Math.random() * 1000, MAX_DELAY);
+        await new Promise((r) => setTimeout(r, delay));
+      }
     }
 
-    return (await resp.json()) as SessionData;
+    throw lastError!;
   }
 }
 

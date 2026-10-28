@@ -585,6 +585,12 @@ class SandboxSession:
         )
         return self._sandbox
 
+    #: Status codes that trigger a retry with exponential backoff.
+    _RETRYABLE_STATUS_CODES: tuple[int, ...] = (429, 502, 503)
+    _MAX_RETRIES: int = 5
+    _BASE_DELAY: float = 1.0
+    _MAX_DELAY: float = 30.0
+
     def _cp_request(
         self,
         method: str,
@@ -592,18 +598,38 @@ class SandboxSession:
         *,
         body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Send an authenticated request to the Control Plane API."""
+        """Send an authenticated request to the Control Plane API.
+
+        Retries with exponential backoff on 429 (rate limit), 502 (bad gateway),
+        and 503 (service unavailable). Other errors are raised immediately.
+        """
+        import random
+
         url = urljoin(self.api_url.rstrip("/") + "/", path.lstrip("/"))
         data = json.dumps(body).encode() if body is not None else None
-        headers: dict[str, str] = {"Content-Type": "application/json"} if data else {}
+        last_exc: httpx.HTTPStatusError | None = None
 
-        headers = self.auth.apply(method, url, headers, data)
+        for attempt in range(self._MAX_RETRIES + 1):
+            headers: dict[str, str] = {"Content-Type": "application/json"} if data else {}
+            headers = self.auth.apply(method, url, headers, data)
+            client = self.http_client
+            if client is not None:
+                resp = client.request(method, url, content=data, headers=headers)
+            else:
+                resp = httpx.request(method, url, content=data, headers=headers)
 
-        client = self.http_client
-        if client is not None:
-            resp = client.request(method, url, content=data, headers=headers)
-        else:
-            resp = httpx.request(method, url, content=data, headers=headers)
+            if resp.status_code not in self._RETRYABLE_STATUS_CODES:
+                resp.raise_for_status()
+                return resp.json()  # type: ignore[no-any-return]
 
-        resp.raise_for_status()
-        return resp.json()  # type: ignore[no-any-return]
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+
+            if attempt < self._MAX_RETRIES:
+                delay = min(self._BASE_DELAY * (2 ** attempt) + random.uniform(0, 1), self._MAX_DELAY)
+                time.sleep(delay)
+
+        assert last_exc is not None
+        raise last_exc

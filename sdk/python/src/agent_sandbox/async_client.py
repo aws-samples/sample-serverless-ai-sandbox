@@ -151,99 +151,51 @@ class AsyncSandboxSession:
 
     # --- Control plane requests ---
 
+    _RETRYABLE_STATUS_CODES: tuple[int, ...] = (429, 502, 503)
+    _MAX_RETRIES: int = 5
+    _BASE_DELAY: float = 1.0
+    _MAX_DELAY: float = 30.0
+
     async def _cp_request(
         self, method: str, path: str, body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        """Send an authenticated request with retry on 429/502/503."""
         import json as _json
+        import random
+
         url = f"{self.api_url.rstrip('/')}{path}"
         body_bytes = _json.dumps(body).encode() if body else None
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self._auth:
-            headers = self._auth.apply(method, url, headers, body_bytes)
-        client = self._http_client or httpx.AsyncClient(timeout=30)
-        if method == "GET":
-            resp = await client.get(url, headers=headers)
-        else:
-            resp = await client.post(url, content=body_bytes, headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+        last_exc: Exception | None = None
 
+        for attempt in range(self._MAX_RETRIES + 1):
+            headers: dict[str, str] = {"Content-Type": "application/json"}
+            if self._auth:
+                headers = self._auth.apply(method, url, headers, body_bytes)
+            client = self._http_client or httpx.AsyncClient(timeout=30)
+            if method == "GET":
+                resp = await client.get(url, headers=headers)
+            elif method == "POST":
+                resp = await client.post(url, content=body_bytes, headers=headers)
+            elif method == "DELETE":
+                resp = await client.delete(url, headers=headers)
+            else:
+                resp = await client.request(method, url, content=body_bytes, headers=headers)
 
-class AsyncSandboxClient:
-    """Async client for the AWS Serverless Agent Sandbox.
+            if resp.status_code not in self._RETRYABLE_STATUS_CODES:
+                resp.raise_for_status()
+                return resp.json()
 
-    Usage::
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
 
-        async with AsyncSandboxClient(api_url="...", region="us-east-1") as client:
-            session = await client.create_session(persistence=True)
-            await session.wait_ready()
-            result = await session.execute(["echo", "hello"])
-    """
+            if attempt < self._MAX_RETRIES:
+                delay = min(self._BASE_DELAY * (2 ** attempt) + random.uniform(0, 1), self._MAX_DELAY)
+                await asyncio.sleep(delay)
 
-    def __init__(
-        self,
-        *,
-        api_url: str,
-        region: str = "us-east-1",
-        token: str | None = None,
-    ) -> None:
-        self.api_url = api_url.rstrip("/")
-        self._region = region
-        self._auth: Auth = BearerAuth(token) if token else SigV4Auth(region)
-        self._http_client = httpx.AsyncClient(timeout=30)
-
-    async def create_session(
-        self,
-        *,
-        max_duration_seconds: int = 3600,
-        idle_seconds: int = 300,
-        suspended_seconds: int = 600,
-        auto_resume: bool = True,
-        persistence: bool = False,
-        affinity_key: str = "",
-    ) -> AsyncSandboxSession:
-        body: dict[str, object] = {
-            "maxDurationSeconds": max_duration_seconds,
-            "idleSeconds": idle_seconds,
-            "suspendedSeconds": suspended_seconds,
-            "autoResume": auto_resume,
-        }
-        if persistence:
-            body["persistence"] = True
-        if affinity_key:
-            body["affinityKey"] = affinity_key
-
-        session = AsyncSandboxSession(
-            session_id="",
-            api_url=self.api_url,
-            _auth=self._auth,
-            _http_client=self._http_client,
-        )
-        data = await session._cp_request("POST", "/sessions", body)
-        session.session_id = data.get("sessionId", "")
-        session.lifecycle_state = data.get("lifecycleState", "UNKNOWN")
-        session._session_data = data
-        return session
-
-    async def get_session(self, session_id: str) -> AsyncSandboxSession:
-        session = AsyncSandboxSession(
-            session_id=session_id,
-            api_url=self.api_url,
-            _auth=self._auth,
-            _http_client=self._http_client,
-        )
-        await session.refresh()
-        return session
-
-    async def list_sessions(self) -> list[dict[str, Any]]:
-        session = AsyncSandboxSession(
-            session_id="",
-            api_url=self.api_url,
-            _auth=self._auth,
-            _http_client=self._http_client,
-        )
-        data = await session._cp_request("GET", "/sessions")
-        return data.get("sessions", [])
+        assert last_exc is not None
+        raise last_exc
 
     async def close(self) -> None:
         if self._http_client:
