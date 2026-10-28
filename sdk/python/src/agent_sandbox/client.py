@@ -95,6 +95,7 @@ class SandboxClient:
         auto_resume: bool = True,
         persistence: bool = False,
         affinity_key: str = "",
+        image_ref: str = "",
     ) -> SandboxSession:
         """Create a new sandbox session.
 
@@ -120,6 +121,9 @@ class SandboxClient:
             ``(tenant, affinity_key)`` see the same ``/mnt/workspace`` contents.
             Requires ``persistence=True``. If omitted, each session gets an
             isolated workspace.
+        image_ref:
+            Override the MicroVM image for this session. Must be a valid
+            MicroVM image ARN. If omitted, the deployment default is used.
 
         Returns
         -------
@@ -136,6 +140,8 @@ class SandboxClient:
             body["persistence"] = True
         if affinity_key:
             body["affinityKey"] = affinity_key
+        if image_ref:
+            body["imageRef"] = image_ref
         data = self._cp_request("POST", "/sessions", body=body)
         session_id = data.get("sessionId", "")
         return SandboxSession(

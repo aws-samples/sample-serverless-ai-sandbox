@@ -251,6 +251,7 @@ class AsyncSandboxClient:
         auto_resume: bool = True,
         persistence: bool = False,
         affinity_key: str = "",
+        image_ref: str = "",
     ) -> AsyncSandboxSession:
         body: dict[str, object] = {
             "maxDurationSeconds": max_duration_seconds,
@@ -262,6 +263,8 @@ class AsyncSandboxClient:
             body["persistence"] = True
         if affinity_key:
             body["affinityKey"] = affinity_key
+        if image_ref:
+            body["imageRef"] = image_ref
 
         session = AsyncSandboxSession(
             session_id="",

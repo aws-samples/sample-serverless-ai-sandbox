@@ -231,6 +231,7 @@ class SessionRecord:
     persistence: bool = False  # S3 Files workspace mount requested
     workspace_affinity_key: str = ""  # shared workspace key for persistence
     principal_id: str = ""  # authenticated caller identity for workspace scoping
+    image_ref: str = ""  # per-session image override; empty = deployment default
     state_reason: str | None = None
     sandbox_handle: Mapping[str, Any] | None = None
     sandbox_id: str | None = None
@@ -289,6 +290,7 @@ class SessionRecord:
             "persistence": self.persistence,
             "workspaceAffinityKey": self.workspace_affinity_key,
             "principalId": self.principal_id,
+            "imageRef": self.image_ref,
             "continuationPaths": list(self.continuation_paths),
             "executionRoleArn": self.execution_role_arn,
             "reapShard": self.reap_shard,
@@ -350,6 +352,7 @@ class SessionRecord:
             persistence=item.get("persistence", False),
             workspace_affinity_key=item.get("workspaceAffinityKey", ""),
             principal_id=item.get("principalId", ""),
+            image_ref=item.get("imageRef", ""),
             continuation_paths=_string_tuple(item, "continuationPaths"),
             state_reason=_optional_string(item, "stateReason"),
             sandbox_handle=None if handle is None else dict(handle),

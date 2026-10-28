@@ -43,13 +43,55 @@ Each template is a directory containing:
 
 ## Running multiple images
 
-The control plane currently uses one image for all sessions (set at deploy time via
-`imageVersion`). To switch between images, redeploy `ControlPlaneStack` with a
-different `imageVersion`. Both images remain built and ready — switching takes ~60
-seconds.
+Sessions use the deployment's default image unless overridden at creation time.
+The default is set during `cdk deploy` via the `imageVersion` context parameter.
 
-The MicroVM API itself supports per-request image selection. A future control plane
-update will allow specifying the image per session at creation time.
+### Per-session image selection
+
+Pass `image_ref` (Python) or `imageRef` (TypeScript) to `create_session` to
+override the default for that session:
+
+```python
+from agent_sandbox import SandboxClient
+
+client = SandboxClient(api_url="https://...", region="us-east-1")
+
+# Uses deployment default (no override)
+session = client.create_session()
+
+# Uses a specific image
+session = client.create_session(
+    image_ref="arn:aws:lambda:us-east-1:123456789012:microvm-image:sandbox-software-factory-v7"
+)
+```
+
+```typescript
+import { SandboxClient } from '@agent-sandbox/sdk';
+
+const client = new SandboxClient({ apiUrl: 'https://...', region: 'us-east-1' });
+
+// Uses deployment default (no override)
+const session = await client.createSession();
+
+// Uses a specific image
+const session = await client.createSession({
+  imageRef: 'arn:aws:lambda:us-east-1:123456789012:microvm-image:sandbox-software-factory-v7',
+});
+```
+
+Both images must already be built (see "Building a template" above). Additional
+images can be built and used immediately without redeploying CDK.
+
+### Changing the deployment default
+
+To change which image is used when `image_ref` is not specified:
+
+```bash
+npx cdk deploy ControlPlaneStack \
+  -c imageVersion=<new-image-arn> \
+  -c proxyImageUri=<existing-proxy-uri> \
+  --require-approval never
+```
 
 ## Available templates
 
