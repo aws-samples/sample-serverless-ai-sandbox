@@ -121,6 +121,7 @@ export class SandboxClient {
       apiUrl: this.#apiUrl,
       auth: this.#auth,
       sessionData: data,
+      autoResume: options?.autoResume ?? true,
     });
   }
 
@@ -145,6 +146,7 @@ export class SandboxClient {
       apiUrl: this.#apiUrl,
       auth: this.#auth,
       sessionData: data,
+      autoResume: options.autoResume ?? true,
     });
   }
 

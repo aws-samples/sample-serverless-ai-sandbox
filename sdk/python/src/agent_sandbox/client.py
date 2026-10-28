@@ -144,6 +144,7 @@ class SandboxClient:
             auth=self._auth,
             session_data=data,
             http_client=self._http_client,
+            auto_resume=auto_resume,
         )
 
     def resolve_session(
@@ -193,6 +194,7 @@ class SandboxClient:
             auth=self._auth,
             session_data=data,
             http_client=self._http_client,
+            auto_resume=auto_resume,
         )
 
     def get_session(self, session_id: str) -> SandboxSession:
@@ -246,6 +248,11 @@ class SandboxClient:
     # Internal
     # ------------------------------------------------------------------
 
+    _RETRYABLE_STATUS_CODES: tuple[int, ...] = (429, 502, 503)
+    _MAX_RETRIES: int = 5
+    _BASE_DELAY: float = 1.0
+    _MAX_DELAY: float = 30.0
+
     def _cp_request(
         self,
         method: str,
@@ -253,13 +260,31 @@ class SandboxClient:
         *,
         body: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Send an authenticated request to the Control Plane API."""
+        """Send an authenticated request with retry on 429/502/503."""
+        import random
+        import time as _time
+
         url = urljoin(self.api_url.rstrip("/") + "/", path.lstrip("/"))
         data = json.dumps(body).encode() if body is not None else None
-        headers: dict[str, str] = {"Content-Type": "application/json"} if data else {}
+        last_exc: httpx.HTTPStatusError | None = None
 
-        headers = self._auth.apply(method, url, headers, data)
+        for attempt in range(self._MAX_RETRIES + 1):
+            headers: dict[str, str] = {"Content-Type": "application/json"} if data else {}
+            headers = self._auth.apply(method, url, headers, data)
+            resp = self._http_client.request(method, url, content=data, headers=headers)
 
-        resp = self._http_client.request(method, url, content=data, headers=headers)
-        resp.raise_for_status()
-        return resp.json()  # type: ignore[no-any-return]
+            if resp.status_code not in self._RETRYABLE_STATUS_CODES:
+                resp.raise_for_status()
+                return resp.json()  # type: ignore[no-any-return]
+
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+
+            if attempt < self._MAX_RETRIES:
+                delay = min(self._BASE_DELAY * (2 ** attempt) + random.uniform(0, 1), self._MAX_DELAY)
+                _time.sleep(delay)
+
+        assert last_exc is not None
+        raise last_exc

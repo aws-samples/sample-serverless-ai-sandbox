@@ -53,6 +53,7 @@ class AsyncSandboxSession:
     _session_data: dict[str, Any] | None = None
     _http_client: httpx.AsyncClient | None = None
     _sandbox: SandboxConnection | None = None
+    auto_resume: bool = False
 
     @property
     def connection(self) -> dict[str, Any] | None:
@@ -111,6 +112,24 @@ class AsyncSandboxSession:
         )
         return self._sandbox
 
+    async def _sandbox_request(self, operation):
+        """Call a sandbox operation, auto-resuming on 502/503 if suspended."""
+        try:
+            return await operation()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in (502, 503):
+                raise
+            if not self.auto_resume:
+                raise
+            await self.refresh()
+            if self.lifecycle_state != "SUSPENDED":
+                raise
+            await self.resume()
+            await self.wait_ready(timeout=60)
+            await self.refresh_connection()
+            self._sandbox = None
+            return await operation()
+
     async def execute(
         self,
         command: list[str] | str,
@@ -119,54 +138,85 @@ class AsyncSandboxSession:
         env: dict[str, str] | None = None,
         timeout_seconds: int = 60,
     ) -> CommandResult:
-        sandbox = self._get_sandbox()
         if isinstance(command, str):
             command = ["sh", "-c", command]
-        return await asyncio.to_thread(
-            sandbox.execute, command, cwd=cwd, env=env or {}, timeout_seconds=timeout_seconds
-        )
+        async def op():
+            return await asyncio.to_thread(
+                self._get_sandbox().execute, command, cwd=cwd, env=env or {}, timeout_seconds=timeout_seconds
+            )
+        return await self._sandbox_request(op)
 
     async def write_file(self, path: str, content: str | bytes, *, mode: int = 0o644) -> None:
-        sandbox = self._get_sandbox()
         # Convert string to bytes for the CBOR protocol
         if isinstance(content, str):
             content = content.encode("utf-8")
-        await asyncio.to_thread(sandbox.write_file, path, content, mode=mode)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().write_file, path, content, mode=mode)
+        await self._sandbox_request(op)
 
     async def read_file(self, path: str) -> str:
-        sandbox = self._get_sandbox()
-        return await asyncio.to_thread(sandbox.read_file, path)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().read_file, path)
+        return await self._sandbox_request(op)
 
     async def read_file_bytes(self, path: str) -> bytes:
-        sandbox = self._get_sandbox()
-        return await asyncio.to_thread(sandbox.read_file_bytes, path)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().read_file_bytes, path)
+        return await self._sandbox_request(op)
 
     async def list_files(self, path: str = "/tmp") -> list[FileEntry]:  # nosec B108
-        sandbox = self._get_sandbox()
-        return await asyncio.to_thread(sandbox.list_files, path)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().list_files, path)
+        return await self._sandbox_request(op)
 
     async def delete_file(self, path: str, *, recursive: bool = False) -> None:
-        sandbox = self._get_sandbox()
-        await asyncio.to_thread(sandbox.delete_file, path, recursive=recursive)
+        async def op():
+            return await asyncio.to_thread(self._get_sandbox().delete_file, path, recursive=recursive)
+        await self._sandbox_request(op)
 
     # --- Control plane requests ---
+
+    _RETRYABLE_STATUS_CODES: tuple[int, ...] = (429, 502, 503)
+    _MAX_RETRIES: int = 5
+    _BASE_DELAY: float = 1.0
+    _MAX_DELAY: float = 30.0
 
     async def _cp_request(
         self, method: str, path: str, body: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        """Send an authenticated request with retry on 429/502/503."""
         import json as _json
+        import random
+
         url = f"{self.api_url.rstrip('/')}{path}"
         body_bytes = _json.dumps(body).encode() if body else None
-        headers: dict[str, str] = {"Content-Type": "application/json"}
-        if self._auth:
-            headers = self._auth.apply(method, url, headers, body_bytes)
-        client = self._http_client or httpx.AsyncClient(timeout=30)
-        if method == "GET":
-            resp = await client.get(url, headers=headers)
-        else:
-            resp = await client.post(url, content=body_bytes, headers=headers)
-        resp.raise_for_status()
-        return resp.json()
+        last_exc: Exception | None = None
+
+        for attempt in range(self._MAX_RETRIES + 1):
+            headers: dict[str, str] = {"Content-Type": "application/json"}
+            if self._auth:
+                headers = self._auth.apply(method, url, headers, body_bytes)
+            client = self._http_client or httpx.AsyncClient(timeout=30)
+            if method == "GET":
+                resp = await client.get(url, headers=headers)
+            else:
+                resp = await client.post(url, content=body_bytes, headers=headers)
+
+            if resp.status_code not in self._RETRYABLE_STATUS_CODES:
+                resp.raise_for_status()
+                return resp.json()
+
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+
+            if attempt < self._MAX_RETRIES:
+                delay = min(self._BASE_DELAY * (2 ** attempt) + random.uniform(0, 1), self._MAX_DELAY)
+                await asyncio.sleep(delay)
+
+        assert last_exc is not None
+        raise last_exc
 
 
 class AsyncSandboxClient:
@@ -218,6 +268,7 @@ class AsyncSandboxClient:
             api_url=self.api_url,
             _auth=self._auth,
             _http_client=self._http_client,
+            auto_resume=auto_resume,
         )
         data = await session._cp_request("POST", "/sessions", body)
         session.session_id = data.get("sessionId", "")

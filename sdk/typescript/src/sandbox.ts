@@ -93,6 +93,16 @@ export interface SandboxConnectionOptions {
 /**
  * Speaks the Sandbox Protocol (CBOR over HTTPS) to a MicroVM endpoint.
  */
+/** Error thrown when a Sandbox Protocol request returns a non-2xx status. */
+export class SandboxProtocolError extends Error {
+  readonly status: number;
+  constructor(status: number, statusText: string) {
+    super(`Sandbox protocol request failed: ${status} ${statusText}`);
+    this.name = 'SandboxProtocolError';
+    this.status = status;
+  }
+}
+
 export class SandboxConnection {
   readonly #baseUrl: string;
   readonly #authHeaderName: string;
@@ -266,12 +276,19 @@ export class SandboxConnection {
   // Protocol transport
   // ------------------------------------------------------------------
 
-  /** Serialise a protocol message, send it, and return the decoded response. */
+  /** Serialise a protocol message, send it, and return the decoded response.
+   *  Retries with exponential backoff on 502/503 (transient infrastructure errors).
+   */
   async #send(
     messageType: string,
     body: Map<number, unknown>,
     timeoutMs: number = 70_000,
   ): Promise<Map<number, unknown>> {
+    const RETRYABLE = new Set([502, 503]);
+    const MAX_RETRIES = 3;
+    const BASE_DELAY = 1000;
+    const MAX_DELAY = 10_000;
+
     const requestId = randomBytes(16);
 
     // Build the deterministic envelope — keys must be ascending integers.
@@ -284,24 +301,39 @@ export class SandboxConnection {
 
     const wire = encode(envelope);
     const url = this.#baseUrl.replace(/\/+$/, '') + '/protocol';
+    let lastError: SandboxProtocolError | null = null;
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        [this.#authHeaderName]: this.#authHeaderValue,
-        'Content-Type': 'application/cbor',
-      },
-      body: wire,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          [this.#authHeaderName]: this.#authHeaderValue,
+          'Content-Type': 'application/cbor',
+        },
+        body: wire,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
 
-    if (!resp.ok) {
-      throw new Error(
-        `Sandbox protocol request failed: ${resp.status} ${resp.statusText}`,
-      );
+      if (!RETRYABLE.has(resp.status)) {
+        if (!resp.ok) {
+          throw new SandboxProtocolError(resp.status, resp.statusText);
+        }
+        const responseBytes = new Uint8Array(await resp.arrayBuffer());
+        return decode(responseBytes) as Map<number, unknown>;
+      }
+
+      // Retryable error
+      lastError = new SandboxProtocolError(resp.status, resp.statusText);
+
+      if (attempt < MAX_RETRIES) {
+        const delay = Math.min(
+          BASE_DELAY * 2 ** attempt + Math.random() * 1000,
+          MAX_DELAY,
+        );
+        await new Promise((r) => setTimeout(r, delay));
+      }
     }
 
-    const responseBytes = new Uint8Array(await resp.arrayBuffer());
-    return decode(responseBytes) as Map<number, unknown>;
+    throw lastError!;
   }
 }

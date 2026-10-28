@@ -1287,8 +1287,21 @@ class SandboxConnection:
     # Protocol transport
     # ------------------------------------------------------------------
 
+    #: Status codes that trigger a retry at the sandbox protocol level.
+    _SEND_RETRYABLE: tuple[int, ...] = (502, 503)
+    _SEND_MAX_RETRIES: int = 3
+    _SEND_BASE_DELAY: float = 1.0
+    _SEND_MAX_DELAY: float = 10.0
+
     def _send(self, message_type: str, body: dict[int, Any], *, timeout_seconds: int = 300) -> dict[int, Any]:
-        """Serialise a protocol message, send it, and return the decoded response."""
+        """Serialise a protocol message, send it, and return the decoded response.
+
+        Retries with exponential backoff on 502/503, which are transient
+        infrastructure errors from the MicroVM endpoint.
+        """
+        import random
+        import time as _time
+
         request_id = os.urandom(16)
 
         # Build the deterministic envelope — keys must be ascending integers.
@@ -1305,12 +1318,30 @@ class SandboxConnection:
             self.auth_header_name: self.auth_header_value,
             "Content-Type": "application/cbor",
         }
+        last_exc: httpx.HTTPStatusError | None = None
 
-        client = self.http_client
-        if client is not None:
-            resp = client.post(url, content=wire, headers=headers, timeout=timeout_seconds)
-        else:
-            resp = httpx.post(url, content=wire, headers=headers, timeout=timeout_seconds)
+        for attempt in range(self._SEND_MAX_RETRIES + 1):
+            client = self.http_client
+            if client is not None:
+                resp = client.post(url, content=wire, headers=headers, timeout=timeout_seconds)
+            else:
+                resp = httpx.post(url, content=wire, headers=headers, timeout=timeout_seconds)
 
-        resp.raise_for_status()
-        return cbor2.loads(resp.content)  # type: ignore[no-any-return]
+            if resp.status_code not in self._SEND_RETRYABLE:
+                resp.raise_for_status()
+                return cbor2.loads(resp.content)  # type: ignore[no-any-return]
+
+            try:
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+
+            if attempt < self._SEND_MAX_RETRIES:
+                delay = min(
+                    self._SEND_BASE_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                    self._SEND_MAX_DELAY,
+                )
+                _time.sleep(delay)
+
+        assert last_exc is not None
+        raise last_exc
