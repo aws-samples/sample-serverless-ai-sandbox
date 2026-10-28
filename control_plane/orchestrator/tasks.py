@@ -320,6 +320,7 @@ class OrchestrationInput:
     persistence: bool = False
     affinity_key: str = ""  # shared workspace key — same key = same workspace
     principal_id: str = ""  # authenticated caller for workspace scoping
+    image_ref: str = ""  # per-session image override; empty = use deployment default
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, Any]) -> OrchestrationInput:
@@ -343,6 +344,7 @@ class OrchestrationInput:
             persistence=bool(payload.get("persistence", False)),
             affinity_key=str(payload.get("affinityKey", "")),
             principal_id=str(payload.get("principalId", "")),
+            image_ref=str(payload.get("imageRef", "")),
         )
 
 
@@ -1281,7 +1283,7 @@ class SessionOrchestrator:
         return SandboxSpec(
             session_id=orchestration.session_id,
             tenant_id=orchestration.tenant_id,
-            image_ref=self.settings.image_ref,
+            image_ref=orchestration.image_ref or self.settings.image_ref,
             memory_bytes=orchestration.memory_bytes,
             vcpu_millis=self.settings.vcpu_millis,
             max_duration_seconds=orchestration.max_duration_seconds,

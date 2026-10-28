@@ -666,6 +666,7 @@ class CreationOperations(NotImplementedOperations):
             persistence=bool(body.get("persistence", False)),
             workspace_affinity_key=str(body.get("affinityKey", "")) if body.get("persistence") else "",
             principal_id=principal.caller_identity,
+            image_ref=str(body.get("imageRef", "")),
             state_reason="created",
             affinity_key_digest=affinity_key_digest,
         )
@@ -734,6 +735,7 @@ class CreationOperations(NotImplementedOperations):
             "exposedPorts": list(record.exposed_ports),
             "executionRoleArn": record.execution_role_arn,
             "generation": record.generation,
+            "imageRef": record.image_ref,
         }
         # Pass persistence flag and affinity key to the orchestrator
         if record.persistence:

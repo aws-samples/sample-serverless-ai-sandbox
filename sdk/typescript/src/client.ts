@@ -67,6 +67,11 @@ export interface CreateSessionOptions {
    * see the same /mnt/workspace contents. Requires persistence=true.
    */
   affinityKey?: string;
+  /**
+   * Override the MicroVM image for this session. Must be a valid MicroVM image ARN.
+   * If omitted, the deployment default is used.
+   */
+  imageRef?: string;
 }
 
 /** Options for resolving a session by affinity key. */
@@ -113,6 +118,7 @@ export class SandboxClient {
       idleSeconds: options?.idleSeconds ?? 300,
       suspendedSeconds: options?.suspendedSeconds ?? 600,
       autoResume: options?.autoResume ?? true,
+      ...(options?.imageRef ? { imageRef: options.imageRef } : {}),
     };
     const data = await this.#cpRequest('POST', '/sessions', body);
     const sessionId = (data.sessionId as string) ?? '';
