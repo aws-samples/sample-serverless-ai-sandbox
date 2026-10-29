@@ -370,7 +370,8 @@ class _DemoOperations(CreationOperations):
             KeyConditionExpression="#pk = :pk",
             ExpressionAttributeNames={"#pk": PARTITION_KEY_ATTRIBUTE},
             ExpressionAttributeValues={":pk": partition_key},
-            Limit=100,
+            Limit=500,
+            ScanIndexForward=False,
         )
 
         # Session sort keys are `S#<sessionId>`. Other item types (bindings,
