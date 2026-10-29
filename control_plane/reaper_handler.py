@@ -67,26 +67,37 @@ def _sweep_expired_sessions() -> None:
     now_ms = int(time.time() * 1000)
     now_decimal = Decimal(str(now_ms))
 
-    # Scan for non-terminal sessions with reapDeadline in the past
+    # Scan for non-terminal sessions with reapDeadline in the past.
+    # The scan is paginated because DDB returns at most 1MB per page,
+    # and expired sessions may be spread across many pages.
+    scan_kwargs: dict[str, object] = {
+        "FilterExpression": (
+            "attribute_exists(reapDeadline) AND reapDeadline <= :now "
+            "AND NOT lifecycleState IN (:t1, :t2)"
+        ),
+        "ExpressionAttributeValues": {
+            ":now": now_decimal,
+            ":t1": "TERMINATED",
+            ":t2": "FAILED",
+        },
+        "ProjectionExpression": "pk,sk,sessionId,lifecycleState,taskToken,reapDeadline,createdAt,orchestrationExecutionArn",
+    }
+    expired_items: list[dict] = []
     try:
-        resp = ddb.scan(  # nosemgrep  # nosec
-            FilterExpression=(
-                "attribute_exists(reapDeadline) AND reapDeadline <= :now "
-                "AND NOT lifecycleState IN (:t1, :t2)"
-            ),
-            ExpressionAttributeValues={
-                ":now": now_decimal,
-                ":t1": "TERMINATED",
-                ":t2": "FAILED",
-            },
-            ProjectionExpression="pk,sk,sessionId,lifecycleState,taskToken,reapDeadline,createdAt,orchestrationExecutionArn",
-        )
+        while True:
+            resp = ddb.scan(**scan_kwargs)  # nosemgrep  # nosec
+            expired_items.extend(resp.get("Items", []))
+            last_key = resp.get("LastEvaluatedKey")
+            if not last_key:
+                break
+            scan_kwargs["ExclusiveStartKey"] = last_key
     except Exception as exc:
         logger.warning("Sweep scan failed: %s", exc)
         return
 
+    logger.info("Found %d expired sessions to reap", len(expired_items))
     reaped = 0
-    for item in resp.get("Items", []):
+    for item in expired_items:
         session_id = item.get("sessionId", "?")
         execution_arn = item.get("orchestrationExecutionArn", "")
         created_at = item.get("createdAt")
