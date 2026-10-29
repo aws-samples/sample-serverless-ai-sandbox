@@ -650,7 +650,7 @@ class ControlPlaneStack(cdk.Stack):
         task_resources = {
             state: self.task_function.function_arn for state in TASK_STATES
         }
-        definition = to_asl(task_resources)
+        definition = to_asl(task_resources, table_name=self.state.table.table_name)
 
         # The state machine execution role.
         sm_role = iam.Role(
@@ -661,6 +661,13 @@ class ControlPlaneStack(cdk.Stack):
         )
         # Grant the state machine permission to invoke the task function.
         self.task_function.grant_invoke(sm_role)
+        # Grant the state machine DDB read for the heartbeat timeout session check.
+        sm_role.add_to_policy(
+            iam.PolicyStatement(
+                actions=["dynamodb:GetItem"],
+                resources=[self.state.table.table_arn],
+            )
+        )
 
         machine = sfn.CfnStateMachine(
             self,
