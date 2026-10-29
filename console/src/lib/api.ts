@@ -44,7 +44,9 @@ export async function apiRequest(
   if (!config) throw new Error("Not configured");
 
   // Route through the Next.js API proxy to avoid CORS
-  const proxyUrl = `/api/proxy/${path.replace(/^\/+/, "")}`;
+  // Separate path and query string so Next.js [...path] gets clean segments
+  const [cleanPath, queryString] = path.replace(/^\/+/, "").split("?", 2);
+  const proxyUrl = `/api/proxy/${cleanPath}${queryString ? `?${queryString}` : ""}`;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
