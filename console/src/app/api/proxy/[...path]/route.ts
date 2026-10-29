@@ -37,9 +37,11 @@ async function proxyRequest(
   }
 
   const path = "/" + params.path.join("/");
+  const queryString = request.nextUrl.searchParams.toString();
+  const fullPath = queryString ? `${path}?${queryString}` : path;
   const parsedUrl = new URL(apiUrl);
   const hostname = parsedUrl.hostname;
-  const url = `${apiUrl.replace(/\/+$/, "")}${path}`;
+  const url = `${apiUrl.replace(/\/+$/, "")}${fullPath}`;
 
   try {
     const body = method !== "GET" ? await request.text() : undefined;
@@ -65,7 +67,7 @@ async function proxyRequest(
         method,
         protocol: "https:",
         hostname,
-        path,
+        path: fullPath,
         headers: {
           "Content-Type": "application/json",
           host: hostname,

@@ -70,6 +70,7 @@ export async function createSession(opts?: {
   autoResume?: boolean;
   persistence?: boolean;
   affinityKey?: string;
+  imageRef?: string;
 }): Promise<SessionSummary> {
   const body: Record<string, unknown> = {
     maxDurationSeconds: opts?.maxDurationSeconds ?? 3600,

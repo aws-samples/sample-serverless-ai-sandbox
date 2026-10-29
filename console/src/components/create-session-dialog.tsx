@@ -16,6 +16,7 @@ export interface CreateSessionOpts {
   autoResume: boolean;
   persistence: boolean;
   affinityKey: string;
+  imageRef: string;
 }
 
 const DURATION_PRESETS = [
