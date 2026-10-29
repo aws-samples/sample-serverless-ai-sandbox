@@ -2,7 +2,7 @@
 # kiro-classification: public
 """Document processing in an isolated sandbox — upload, extract, analyze, destroy.
 
-Demonstrates the due diligence / clean room use case with three document ingestion
+Demonstrates use case with three document ingestion
 patterns:
 
   Option A: SDK write_file() — caller pushes bytes directly into the sandbox
@@ -163,7 +163,7 @@ json.dump({"extraction": extraction, "ai_analysis": analysis}, sys.stdout, inden
 
 
 print("=" * 65)
-print("Document Processing Example — Due Diligence Clean Room")
+print("Document Processing Example")
 print("=" * 65)
 
 with client.create_session(
