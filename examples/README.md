@@ -52,8 +52,7 @@ session = client.create_session(
 
 ### Example 07: Document Processing
 
-Demonstrates a due diligence / clean room workflow where sensitive documents are
-processed inside isolated MicroVMs. Each document gets its own sandbox — no
+Demonstrates a workflow where documents are processed inside isolated MicroVMs. Each document gets its own sandbox — no
 cross-contamination between sessions.
 
 Three ways to get documents into the sandbox:
