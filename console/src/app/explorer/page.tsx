@@ -54,6 +54,8 @@ const PRESETS: PresetGroup[] = [
     group: "Session Lifecycle",
     items: [
       { label: "Create Session (ephemeral)", method: "POST", path: "/sessions", body: { maxDurationSeconds: 3600, idleSeconds: 300, suspendedSeconds: 600, autoResume: true }, needsSession: false },
+      { label: "Create Session (custom image)", method: "POST", path: "/sessions", body: { maxDurationSeconds: 3600, idleSeconds: 300, suspendedSeconds: 600, autoResume: true, imageRef: "arn:aws:lambda:us-east-1:ACCOUNT:microvm-image:IMAGE_NAME" }, needsSession: false },
+      { label: "Create Session (persistent)", method: "POST", path: "/sessions", body: { maxDurationSeconds: 3600, idleSeconds: 300, suspendedSeconds: 600, autoResume: true, persistence: true }, needsSession: false },
       { label: "Get Session", method: "GET", path: "/sessions/{sessionId}", needsSession: true },
       { label: "List Sessions", method: "GET", path: "/sessions", needsSession: false },
       { label: "Suspend", method: "POST", path: "/sessions/{sessionId}/suspend", needsSession: true },
