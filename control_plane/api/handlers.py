@@ -78,6 +78,7 @@ class OperationRequest:
     operation: Operation
     principal: AuthenticatedPrincipal
     body: Mapping[str, Any]
+    query_parameters: Mapping[str, str] = field(default_factory=dict)
     session: SessionRecord | None = None
 
 
@@ -278,6 +279,7 @@ class ControlPlaneApi:
             operation=route.operation,
             principal=principal,
             body=request_body(event),
+            query_parameters=dict(event.get("queryStringParameters") or {}),
             session=session,
         )
 

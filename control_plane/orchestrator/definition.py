@@ -149,6 +149,10 @@ class OrchestratorState(Enum):
     RECORD_SUSPENDED = "RecordSuspended"
     #: Record a resume before re-entering the wait.
     RECORD_RESUMED = "RecordResumed"
+    #: DDB GetItem to check if the session was terminated externally (heartbeat timeout).
+    CHECK_SESSION_STATE = "CheckSessionState"
+    #: Route based on the DDB read: if TERMINATED/FAILED → cleanup, else → re-wait.
+    EVALUATE_SESSION_STATE = "EvaluateSessionState"
     #: The duration-ceiling handoff (R10.11).
     CONTINUE = "Continue"
     #: `provider.terminate`, reached on a limit, on an observed terminate, or on a caught failure.
@@ -361,6 +365,7 @@ class TaskState:
     retriers: tuple[Retrier, ...] = ()
     catchers: tuple[Catcher, ...] = ()
     wait_for_task_token: bool = False
+    heartbeat_seconds_path: str = ""
 
     def to_asl(
         self, state: OrchestratorState, resource: str | None = None
@@ -389,6 +394,8 @@ class TaskState:
                 "ResultPath": self.result_path,
                 "Next": self.next_state.value,
             }
+            if self.heartbeat_seconds_path:
+                asl["HeartbeatSecondsPath"] = self.heartbeat_seconds_path
         else:
             asl: dict[str, Any] = {
                 "Type": self.kind.value,
@@ -443,9 +450,38 @@ class ChoiceState:
                 if decision in self.branches
             ],
         }
-
-
 @dataclass(frozen=True, slots=True)
+class StringChoiceState:
+    """A `Choice` state over string values with a ``Default`` fallback.
+
+    Unlike :class:`ChoiceState` which is keyed on :class:`GovernanceDecision`, this one
+    accepts plain string → state mappings. Used by the session state check after heartbeat
+    timeout, where the branching variable is a DDB attribute value.
+    """
+    kind: ClassVar[StateKind] = StateKind.CHOICE
+    variable: str
+    branches: Mapping[str, OrchestratorState]
+    default: OrchestratorState
+    comment: str
+
+    def to_asl(
+        self, state: OrchestratorState, resource: str | None = None
+    ) -> dict[str, Any]:
+        del state, resource
+        return {
+            "Type": self.kind.value,
+            "Comment": self.comment,
+            "Choices": [
+                {
+                    "Variable": self.variable,
+                    "StringEquals": value,
+                    "Next": target.value,
+                }
+                for value, target in self.branches.items()
+            ],
+            "Default": self.default.value,
+        }
+
 class WaitState:
     """A `Wait` state whose duration arrives as data on the execution state.
 
@@ -503,6 +539,43 @@ class FailState:
         return {"Type": self.kind.value, "Error": self.error, "Cause": self.cause}
 
 
+
+@dataclass(frozen=True, slots=True)
+class DdbGetItemState:
+    """A native DynamoDB GetItem integration state (no Lambda needed).
+
+    Uses ``arn:aws:states:::dynamodb:getItem`` to read a session record and check
+    its lifecycle state. The table name is injected at render time.
+    """
+    kind: ClassVar[StateKind] = StateKind.TASK
+    next_state: OrchestratorState
+    result_path: str
+    comment: str
+    catchers: tuple[Catcher, ...] = ()
+
+    def to_asl(
+        self, state: OrchestratorState, resource: str | None = None, *, table_name: str = ""
+    ) -> dict[str, Any]:
+        del resource  # not a Lambda task
+        asl: dict[str, Any] = {
+            "Type": self.kind.value,
+            "Comment": self.comment,
+            "Resource": "arn:aws:states:::dynamodb:getItem",
+            "Parameters": {
+                "TableName": table_name,
+                "Key": {
+                    "pk": {"S.$": "States.Format('T#{}', $.tenantId)"},
+                    "sk": {"S.$": "States.Format('S#{}', $.sessionId)"},
+                },
+                "ProjectionExpression": "lifecycleState",
+            },
+            "ResultPath": self.result_path,
+            "Next": self.next_state.value,
+        }
+        if self.catchers:
+            asl["Catch"] = [c.to_asl() for c in self.catchers]
+        return asl
+
 #: One of the five node kinds. A union rather than one type with optional fields, so a state's kind
 #: determines exactly which attributes it has.
 StateNode = TaskState | ChoiceState | WaitState | SucceedState | FailState
@@ -522,6 +595,10 @@ def targets_of(node: StateNode) -> tuple[OrchestratorState, ...]:
             for decision in GovernanceDecision
             if decision in node.branches
         )
+    if isinstance(node, StringChoiceState):
+        return (*node.branches.values(), node.default)
+    if isinstance(node, DdbGetItemState):
+        return (node.next_state, *(catcher.target for catcher in node.catchers))
     if isinstance(node, WaitState):
         return (node.next_state,)
     return ()
@@ -612,8 +689,16 @@ STATE_MACHINE: Final[Mapping[OrchestratorState, StateNode]] = {
         result_path="$.lifecycle",
         comment="waitForTaskToken: pause until API Handler or Reaper sends a callback",
         retriers=(_TRANSIENT,),
-        catchers=(_RECORD_THE_FAILURE,),
+        catchers=(
+            Catcher(
+                errors=("States.Timeout",),
+                target=OrchestratorState.CHECK_SESSION_STATE,
+                result_path="$.heartbeatTimeout",
+            ),
+            _RECORD_THE_FAILURE,
+        ),
         wait_for_task_token=True,
+        heartbeat_seconds_path="$.limits.maxDurationSeconds",
     ),
     OrchestratorState.HANDLE_EVENT: ChoiceState(
         variable="$.lifecycle.decision",
@@ -625,6 +710,21 @@ STATE_MACHINE: Final[Mapping[OrchestratorState, StateNode]] = {
             GovernanceDecision.KEEP_POLLING: OrchestratorState.WAIT_FOR_LIFECYCLE,
         },
         comment="route the lifecycle event: tear-down, continue, suspend, resume, or re-wait",
+    ),
+    OrchestratorState.CHECK_SESSION_STATE: DdbGetItemState(
+        next_state=OrchestratorState.EVALUATE_SESSION_STATE,
+        result_path="$.ddbCheck",
+        comment="read session state from DDB after heartbeat timeout",
+        catchers=(_RECORD_THE_FAILURE,),
+    ),
+    OrchestratorState.EVALUATE_SESSION_STATE: StringChoiceState(
+        variable="$.ddbCheck.Item.lifecycleState.S",
+        branches={
+            "TERMINATED": OrchestratorState.CLEANUP,
+            "FAILED": OrchestratorState.CLEANUP,
+        },
+        default=OrchestratorState.WAIT_FOR_LIFECYCLE,
+        comment="if session is TERMINATED/FAILED in DDB, clean up; otherwise re-wait",
     ),
     OrchestratorState.RECORD_SUSPENDED: TaskState(
         next_state=OrchestratorState.WAIT_FOR_LIFECYCLE,
@@ -777,7 +877,10 @@ for _state in sorted(_FALLIBLE_FORWARD_TASKS, key=lambda member: member.value):
 
 
 def to_asl(
-    task_resources: Mapping[OrchestratorState, str], *, comment: str | None = None
+    task_resources: Mapping[OrchestratorState, str],
+    *,
+    comment: str | None = None,
+    table_name: str = "",
 ) -> dict[str, Any]:
     """Render the Amazon States Language definition, given a resource ARN for every `Task` state.
 
@@ -805,7 +908,11 @@ def to_asl(
         or "Session_Orchestrator: provision, publish and govern one Session (R10.1)",
         "StartAt": START_AT.value,
         "States": {
-            state.value: STATE_MACHINE[state].to_asl(state, task_resources.get(state))
+            state.value: (
+                STATE_MACHINE[state].to_asl(state, task_resources.get(state), table_name=table_name)
+                if isinstance(STATE_MACHINE[state], DdbGetItemState)
+                else STATE_MACHINE[state].to_asl(state, task_resources.get(state))
+            )
             for state in OrchestratorState
         },
     }

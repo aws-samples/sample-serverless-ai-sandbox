@@ -68,7 +68,7 @@ function SessionBadge({ state }: { state: string }) {
 export default function SessionsPage() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string>("all");
+  const [filter, setFilter] = useState<string>("RUNNING");
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [creating, setCreating] = useState(false);
   const router = useRouter();
@@ -89,8 +89,9 @@ export default function SessionsPage() {
 
   const fetchSessions = useCallback(() => {
     setLoading(true);
-    listSessions().then((data) => { setSessions(data.sessions || []); setLoading(false); }).catch(() => setLoading(false));
-  }, []);
+    const stateParam = filter === "all" ? undefined : filter;
+    listSessions(stateParam).then((data) => { setSessions(data.sessions || []); setLoading(false); }).catch(() => setLoading(false));
+  }, [filter]);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
   useEffect(() => {
@@ -99,7 +100,7 @@ export default function SessionsPage() {
     return () => clearInterval(interval);
   }, [autoRefresh, fetchSessions]);
 
-  const filtered = filter === "all" ? sessions : sessions.filter((s) => s.lifecycleState === filter);
+  const filtered = sessions;  // server already filtered by state
   const sorted = sortSessions(filtered);
 
   const handleTerminate = async (sessionId: string) => {
