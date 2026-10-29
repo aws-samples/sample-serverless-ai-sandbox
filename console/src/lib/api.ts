@@ -88,8 +88,9 @@ export async function getSession(sessionId: string): Promise<SessionSummary> {
   return resp.json();
 }
 
-export async function listSessions(): Promise<{ sessions: SessionSummary[] }> {
-  const resp = await apiRequest("GET", "/sessions");
+export async function listSessions(state?: string): Promise<{ sessions: SessionSummary[] }> {
+  const path = state ? `/sessions?state=${state}` : "/sessions";
+  const resp = await apiRequest("GET", path);
   return resp.json();
 }
 

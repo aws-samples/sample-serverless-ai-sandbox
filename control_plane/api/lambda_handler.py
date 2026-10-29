@@ -355,45 +355,46 @@ class _DemoOperations(CreationOperations):
         return OperationResult(payload=payload)
 
     def list_sessions(self, request: OperationRequest) -> OperationResult:
-        """List sessions for the authenticated tenant via the tenant-state-index GSI."""
+        """List sessions, optionally filtered by lifecycle state (?state=RUNNING)."""
         import boto3
-
+        from boto3.dynamodb.conditions import Key
         from control_plane.state.keys import SEPARATOR, SESSION_PREFIX
         from control_plane.tenancy.partition import pk_for
-
         table_name = os.environ.get("TABLE_NAME", "")
         partition_key = pk_for(request.principal)
-
         table = boto3.resource("dynamodb").Table(table_name)
-        response = table.query(
-            IndexName=TENANT_STATE_INDEX.name,
-            KeyConditionExpression="#pk = :pk",
-            ExpressionAttributeNames={"#pk": PARTITION_KEY_ATTRIBUTE},
-            ExpressionAttributeValues={":pk": partition_key},
-            Limit=500,
-            ScanIndexForward=False,
-        )
-
-        # Session sort keys are `S#<sessionId>`. Other item types (bindings,
-        # artifacts, continuations) share the same partition but have different
-        # sort key prefixes, so filter by the session prefix.
+        state_filter = (request.query_parameters or {}).get("state", "")
+        if state_filter:
+            response = table.query(
+                IndexName=TENANT_STATE_INDEX.name,
+                KeyConditionExpression=(
+                    Key(PARTITION_KEY_ATTRIBUTE).eq(partition_key)
+                    & Key(TENANT_STATE_INDEX.sort_key).begins_with(f"{state_filter}#")
+                ),
+                ScanIndexForward=False,
+                Limit=200,
+            )
+        else:
+            response = table.query(
+                IndexName=TENANT_STATE_INDEX.name,
+                KeyConditionExpression=Key(PARTITION_KEY_ATTRIBUTE).eq(partition_key),
+                ScanIndexForward=False,
+                Limit=100,
+            )
         session_prefix = f"{SESSION_PREFIX}{SEPARATOR}"
         sessions = []
         for item in response.get("Items", []):
             sort_key = item.get(SORT_KEY_ATTRIBUTE, "")
             if not sort_key.startswith(session_prefix):
                 continue
-            # The session ID is everything after `S#`, but only for plain
-            # session rows (sort key has exactly one separator after the prefix).
             remainder = sort_key[len(session_prefix):]
             if SEPARATOR in remainder:
-                continue  # artifact or continuation item, not a session row
+                continue
             entry: dict[str, object] = {
                 "sessionId": remainder,
                 "lifecycleState": item.get("lifecycleState", "UNKNOWN"),
                 "tenantId": item.get("tenantId", ""),
             }
-            # Include timestamps when available for client-side sorting.
             created = item.get("createdAt")
             if created is not None:
                 entry["createdAt"] = int(created)
@@ -401,7 +402,6 @@ class _DemoOperations(CreationOperations):
             if updated is not None:
                 entry["updatedAt"] = int(updated)
             sessions.append(entry)
-
         return OperationResult(payload={"sessions": sessions})
 
     def terminate_session(self, request: OperationRequest) -> OperationResult:
