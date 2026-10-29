@@ -39,6 +39,7 @@ export function CreateSessionDialog({ open, onClose, onSubmit }: CreateSessionDi
   const [autoResume, setAutoResume] = useState(true);
   const [persistence, setPersistence] = useState(false);
   const [affinityKey, setAffinityKey] = useState("");
+  const [imageRef, setImageRef] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   if (!open) return null;
@@ -53,6 +54,7 @@ export function CreateSessionDialog({ open, onClose, onSubmit }: CreateSessionDi
         autoResume,
         persistence,
         affinityKey: affinityKey.trim(),
+        imageRef: imageRef.trim(),
       });
       onClose();
     } catch {
