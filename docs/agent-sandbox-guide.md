@@ -19,14 +19,14 @@
 | CPUs | 4 |
 | Memory | ~8 GB |
 | Root disk | 7.8 GB (ephemeral) |
-| Persistent storage | /mnt/workspace (8 EB NFS, S3-backed) |
+| Persistent storage | /mnt/workspace (S3 Files NFS) — requires [S3 Files setup](persistence-setup.md) |
 
 ## Filesystem
 
 | Path | Type | Survives restart? | Writable? | Notes |
 |------|------|-------------------|-----------|-------|
 | `/tmp` | Ephemeral | No | Yes | Default working directory. Lost on terminate. |
-| `/mnt/workspace` | Persistent (S3 Files NFS) | Yes | Yes | Survives suspend, resume, termination. Only available when session created with `persistence: true`. |
+| `/mnt/workspace` | Persistent (S3 Files NFS) | Yes | Yes | Survives suspend, resume, termination. Requires `persistence: true` AND [S3 Files setup](persistence-setup.md). Without S3 Files configured, this is a local directory that does NOT persist. |
 | `/home` | Ephemeral | No | No (root-owned) | Not writable by uid 1000. |
 | `/root` | Ephemeral | No | No (root-owned) | Not writable. Do not use for pip cache. |
 
@@ -144,6 +144,29 @@ def call_bedrock(prompt, model='amazon.nova-micro-v1:0', max_tokens=512, tempera
 
 Usage: `from bedrock_helper import call_bedrock; print(call_bedrock("Explain quicksort"))`
 
+
+## Per-Session Image Selection
+
+Different sessions can use different MicroVM images from the same deployment.
+Pass `image_ref` when creating a session to override the deployment default:
+
+```python
+from agent_sandbox import SandboxClient
+
+client = SandboxClient(api_url="https://...", region="us-east-1")
+
+# Uses deployment default image
+session = client.create_session()
+
+# Uses a specific image
+session = client.create_session(
+    image_ref="arn:aws:lambda:us-east-1:ACCOUNT:microvm-image:sandbox-software-factory-v7"
+)
+```
+
+Images must already be built (see `templates/` for available templates).
+Use `examples/08_per_session_image.py` to inspect what's installed in any image.
+
 ## Network and Egress
 
 ### Proxy Configuration
@@ -168,9 +191,10 @@ through the proxy.
 | `registry.npmjs.org` | Yes | `npm install` |
 | `cdn.amazonlinux.com` | Yes | `dnf install` |
 | Amazon Bedrock | Yes | Via proxy only (see above) |
+| `github.com` | Yes | `git clone` through proxy |
 | `google.com`, `example.com` | No | Blocked by proxy allowlist |
 | Direct IP connections | No | Blocked |
-| AWS services (S3, DynamoDB, etc.) | Via IMDS creds | Scoped by IAM deny policies |
+| AWS services (S3, DynamoDB, etc.) | No | `.amazonaws.com` bypasses proxy, hits zero-route subnet — unreachable |
 
 ### curl Examples
 
@@ -219,7 +243,8 @@ git add . && git commit -m "init"
 | `find` command not found | Not installed in AL2023 minimal | Use `ls -R` instead |
 | `sudo` not available | No sudo in sandbox | Work as uid 1000, use --target for installs |
 | Files disappear after terminate | Written to /tmp (ephemeral) | Use /mnt/workspace for persistence |
-| boto3 S3/DynamoDB calls scoped | IAM deny policies | Only session-scoped access allowed |
+| boto3 S3/DynamoDB calls scoped | `.amazonaws.com` on no_proxy + zero-route subnet | AWS API calls are unreachable from inside the sandbox |
+| 502 on execute after idle | MicroVM suspended | SDK auto-resumes if `auto_resume=True` (default). Retry with backoff handles transient 502/503. |
 
 ## Example Workflows
 
