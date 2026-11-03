@@ -14,6 +14,7 @@ TOKEN = os.environ.get("SANDBOX_TOKEN")
 client = SandboxClient(api_url=API_URL, region=REGION, token=TOKEN)
 
 print("Creating sandbox session...")
+# Context manager: session.terminate() is called automatically when the block exits
 with client.create_session() as session:
     session.wait_ready(timeout=60)
     print(f"Session {session.session_id[:12]}... is RUNNING\n")
