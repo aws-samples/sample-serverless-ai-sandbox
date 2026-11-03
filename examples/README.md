@@ -4,13 +4,27 @@ Quick demos of the AWS Serverless Agent Sandbox SDK. No web console needed.
 
 ## Setup
 
+The examples use the Python SDK which is installed locally from the repo (not published to PyPI yet).
+
 ```bash
-# From the repo root
+# From the repo root — install dependencies into a virtual environment
+# Option A: using uv (fast Python package manager — https://docs.astral.sh/uv/)
 uv sync
+
+# Option B: using pip
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e sdk/python
+
+# Set your API URL and region
 export API_URL="https://<your-api-id>.execute-api.<region>.amazonaws.com"
 export AWS_REGION="us-east-1"
 # For multi-tenant: export SANDBOX_TOKEN="demo-token-tenant-a"
 ```
+
+> **Important**: Always run examples from the activated virtual environment.
+> If you see `ModuleNotFoundError: No module named 'agent_sandbox'`, activate
+> the venv first: `source .venv/bin/activate`
 
 ## Run
 
