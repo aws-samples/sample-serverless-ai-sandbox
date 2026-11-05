@@ -38,8 +38,9 @@ if not API_URL:
     print("Example: export API_URL=https://xxx.execute-api.us-east-1.amazonaws.com")
     exit(1)
 REGION = os.environ.get("AWS_REGION", "us-east-1")
+TOKEN = os.environ.get("SANDBOX_TOKEN")
 
-client = SandboxClient(api_url=API_URL, region=REGION)
+client = SandboxClient(api_url=API_URL, region=REGION, token=TOKEN)
 
 # A sample document (text for simplicity — works the same with PDF bytes)
 SAMPLE_DOCUMENT = """\

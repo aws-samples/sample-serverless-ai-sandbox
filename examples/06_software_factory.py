@@ -22,6 +22,7 @@ import argparse
 import json
 import time
 
+import os
 from agent_sandbox import SandboxClient
 
 
@@ -31,7 +32,8 @@ def main() -> None:
     parser.add_argument("--region", default="us-east-1")
     args = parser.parse_args()
 
-    client = SandboxClient(api_url=args.api_url, region=args.region)
+    token = os.environ.get("SANDBOX_TOKEN")
+    client = SandboxClient(api_url=args.api_url, region=args.region, token=token)
 
     print("Creating sandbox session...")
     with client.create_session() as session:
