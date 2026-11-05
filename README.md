@@ -451,6 +451,11 @@ with client.create_session() as session:
     result = session.execute("python3 /tmp/script.py")
     print(result.stdout)
 
+    # Upload to persistent workspace (requires persistence=True)
+    # Uses a pre-signed S3 URL — no API Gateway size limit
+    session.upload_file("data.csv", csv_bytes)
+    # File appears at /mnt/workspace/data.csv
+
     # Git operations
     session.git.clone("https://github.com/user/repo", "/tmp/repo", depth=1)
     status = session.git.status(cwd="/tmp/repo")
@@ -678,6 +683,35 @@ session_b = client.create_session(persistence=True, affinity_key="my-project")
 // TypeScript SDK
 const session = await client.createSession({ persistence: true });
 const shared = await client.createSession({ persistence: true, affinityKey: "my-project" });
+```
+
+### Upload files to the workspace
+
+Four ways to get files into `/mnt/workspace`:
+
+| Method | How it works | Best for |
+|--------|-------------|----------|
+| `session.write_file("/mnt/workspace/f.txt", data)` | Pushes bytes through the sandbox connection | Small files, any auth mode |
+| `session.upload_file("f.txt", data)` | Gets a pre-signed S3 URL from the API, uploads directly to S3 | Large files, multi-tenant (bearer token) callers |
+| `s3.put_object(Bucket=..., Key=..., Body=...)` | Direct S3 API call using the workspace bucket/prefix | Callers with S3 permissions (SigV4) |
+| Write inside sandbox | `session.execute("echo hi > /mnt/workspace/f.txt")` | Scripts running inside the sandbox |
+
+```python
+# Option 1: write_file — simple, works everywhere
+session.write_file("/mnt/workspace/contract.pdf", pdf_bytes)
+
+# Option 2: upload_file — pre-signed S3 URL, no size limit
+# Gets a pre-signed URL from the API, uploads directly to S3.
+# The file never passes through API Gateway (no 10 MB limit).
+# Works with both SigV4 and bearer-token (multi-tenant) callers.
+session.upload_file("contract.pdf", pdf_bytes)
+# File appears at /mnt/workspace/contract.pdf
+```
+
+```typescript
+// TypeScript SDK
+await session.writeFile("/mnt/workspace/contract.pdf", pdfBytes);
+await session.uploadFile("contract.pdf", pdfBytes);
 ```
 
 ### How it works

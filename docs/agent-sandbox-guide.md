@@ -32,6 +32,16 @@
 
 **Rule**: Always work in `/tmp` for ephemeral tasks or `/mnt/workspace` for persistent projects.
 
+### Getting files into the workspace
+
+| Method | Example | Notes |
+|--------|---------|-------|
+| `write_file` | `session.write_file("/mnt/workspace/f.txt", data)` | Simple, works with any auth mode |
+| `upload_file` | `session.upload_file("f.txt", data)` | Pre-signed S3 URL, no API Gateway size limit. Best for large files and multi-tenant (bearer token) callers |
+| Shell command | `session.execute("curl ... > /mnt/workspace/f.txt")` | Only works if the URL is reachable through the egress proxy |
+
+`upload_file` requests a pre-signed S3 PUT URL from the API, then uploads directly to S3. The file appears at `/mnt/workspace/{path}` via S3 Files NFS sync (near-instant). The file content never passes through API Gateway.
+
 ## Installing Packages
 
 The sandbox user (uid 1000) cannot write to system directories. Use `--target`:
