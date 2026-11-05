@@ -9,7 +9,7 @@ Wires the ``ControlPlaneApi`` to the real AWS services the CDK stack provisions:
 - **Lambda MicroVMs** as the Compute_Provider, for admission's ceiling and for the provider name
   recorded on every Session row.
 
-The remaining seven operations inherit ``NotImplementedOperations``'s ``501`` through
+The remaining eight operations inherit ``NotImplementedOperations``'s ``501`` through
 ``CreationOperations``, which is the shape
 :class:`~control_plane.api.connection.ConnectionOperations` established: each operation arrives with
 the task that fills it, and the ``501`` is a truthful skeleton until then.
@@ -52,7 +52,7 @@ from control_plane.api.handlers import (
     OperationResult,
     lambda_entrypoint,
 )
-from control_plane.api.errors import ControlPlaneError, error_response
+from control_plane.api.errors import ControlPlaneError, MalformedRequest, error_response
 from control_plane.providers.base import SandboxHandle
 from control_plane.providers.lambda_microvm import LambdaMicroVmProvider
 from control_plane.state.access import (
@@ -81,6 +81,16 @@ _SESSION_LIMIT_PER_USER: Final = int(os.environ.get("SESSION_LIMIT_PER_USER", "5
 _SESSION_LIMIT_PER_TENANT: Final = int(os.environ.get("SESSION_LIMIT_PER_TENANT", "100"))
 _WORKSPACE_PREFIX: Final = "workspaces"
 _PRESIGNED_URL_EXPIRY: Final = 3600  # 1 hour
+
+
+def _sanitize_principal_id(principal_id: str) -> str:
+    """Sanitize a principal ID for use in S3 paths.
+
+    Mirrors the sanitization in ``orchestrator/tasks.py::_resolve_access_point``
+    so that the S3 prefix the API returns matches the S3 Files access point root.
+    """
+    pid = principal_id or "default"
+    return pid.replace("/", "_").replace(":", "_")[:64]
 
 # ---------------------------------------------------------------------------
 # Default policy values — the design's declared configuration.
@@ -347,10 +357,15 @@ class _DemoOperations(CreationOperations):
             payload["connection"] = record.connection.to_map()
         # Workspace path for per-session persistent storage
         bucket = os.environ.get("BUCKET_NAME", "")
-        if bucket:
+        if bucket and record.persistence:
+            pid_safe = _sanitize_principal_id(record.principal_id)
+            if record.workspace_affinity_key:
+                ws_path = f"{_WORKSPACE_PREFIX}/{record.tenant_id}/{pid_safe}/{record.workspace_affinity_key}/"
+            else:
+                ws_path = f"{_WORKSPACE_PREFIX}/{record.tenant_id}/{pid_safe}/{record.session_id}/"
             payload["workspace"] = {
                 "bucket": bucket,
-                "prefix": f"{_WORKSPACE_PREFIX}/{record.tenant_id}/{record.session_id}/",
+                "prefix": ws_path,
             }
         return OperationResult(payload=payload)
 
@@ -478,6 +493,78 @@ class _DemoOperations(CreationOperations):
         )
 
 
+
+    def upload_url(self, request: OperationRequest) -> OperationResult:
+        """Generate a pre-signed S3 PUT URL for uploading to the session's workspace.
+
+        The URL is scoped to ``s3:PutObject`` on one key. The caller uploads
+        directly to S3 — the file never passes through API Gateway, so there
+        is no 10 MB payload limit.  The uploaded file appears at
+        ``/mnt/workspace/{filename}`` inside the sandbox via S3 Files NFS sync.
+
+        Requires ``persistence=True`` on the session.
+        """
+        import logging
+        import re
+
+        import boto3
+
+        record = request.session
+        assert record is not None
+
+        if not record.persistence:
+            raise MalformedRequest(
+                "Session does not have persistence enabled. "
+                "Create the session with persistence=True to use workspace uploads."
+            )
+
+        body = dict(request.body)
+        filename = body.get("filename", "")
+        if not filename or not isinstance(filename, str):
+            raise MalformedRequest("Request body must include a non-empty 'filename' string.")
+
+        # Sanitize: reject path traversal and absolute paths
+        filename = filename.lstrip("/")
+        if ".." in filename.split("/"):
+            raise MalformedRequest("Filename must not contain '..' path segments.")
+        if not filename:
+            raise MalformedRequest("Filename resolves to an empty path after sanitization.")
+        # Reject control characters
+        if re.search(r"[\x00-\x1f]", filename):
+            raise MalformedRequest("Filename must not contain control characters.")
+
+        bucket = os.environ.get("BUCKET_NAME", "")
+        if not bucket:
+            raise MalformedRequest("Workspace storage is not configured on this deployment.")
+
+        # Build the S3 key matching the S3 Files access point root path
+        pid_safe = _sanitize_principal_id(record.principal_id)
+        if record.workspace_affinity_key:
+            s3_key = f"{_WORKSPACE_PREFIX}/{record.tenant_id}/{pid_safe}/{record.workspace_affinity_key}/{filename}"
+        else:
+            s3_key = f"{_WORKSPACE_PREFIX}/{record.tenant_id}/{pid_safe}/{record.session_id}/{filename}"
+
+        from botocore.config import Config
+
+        region = os.environ.get("AWS_REGION", "us-east-1")
+        s3 = boto3.client("s3", region_name=region, config=Config(signature_version="s3v4"))
+        url = s3.generate_presigned_url(
+            "put_object",
+            Params={"Bucket": bucket, "Key": s3_key},
+            ExpiresIn=_PRESIGNED_URL_EXPIRY,
+        )
+
+        logging.getLogger(__name__).info(
+            "Generated upload URL for session %s, file %s",
+            record.session_id, filename,
+        )
+
+        return OperationResult(
+            payload={
+                "uploadUrl": url,
+                "expiresIn": _PRESIGNED_URL_EXPIRY,
+            },
+        )
 
     def _send_lifecycle_callback(self, record, decision: str) -> None:
         """Send a callback to the orchestrator's WaitForLifecycle state.

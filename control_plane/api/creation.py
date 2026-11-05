@@ -530,7 +530,7 @@ def _requested_ports(body: Mapping[str, Any]) -> tuple[int, ...]:
 class CreationOperations(NotImplementedOperations):
     """The operation this task implements: `CreateSession`, and no other.
 
-    Inherits the remaining seven seams so the routes those tasks own keep answering `501` naming
+    Inherits the remaining eight seams so the routes those tasks own keep answering `501` naming
     the task that fills them, which is the shape
     :class:`~control_plane.api.connection.ConnectionOperations` established.
 

@@ -1,12 +1,12 @@
 # kiro-classification: public
-"""The dispatcher, and the eight seams the rest of this component fills in.
+"""The dispatcher, and the nine seams the rest of this component fills in.
 
 The shape here is deliberately thin. :class:`ControlPlaneApi` does four things and stops:
 
 1. Establishes the authenticated principal, failing closed if the invocation carries no evidence
    that the `AWS_IAM` authorizer ran (R6.3). This happens **first**, before routing, so that an
    invocation with no verified caller is refused rather than being told which paths exist.
-2. Routes onto one of the eight operations (R6.1). No match is the fixed not-found response.
+2. Routes onto one of the nine operations (R6.1). No match is the fixed not-found response.
 3. For every route that names a Session, resolves that identifier inside the caller's own Tenant
    partition and hands the resulting record to the operation (R6.9). Doing this in the dispatcher
    rather than in each operation is the point: not-found is reached on all five such routes by
@@ -91,7 +91,7 @@ class OperationResult:
 
 
 class SessionOperations(Protocol):
-    """The eight operations, as the one interface the dispatcher knows.
+    """The nine operations, as the one interface the dispatcher knows.
 
     Each method is a seam. The task that fills it is named on the corresponding method of
     :class:`NotImplementedOperations`.
@@ -113,12 +113,14 @@ class SessionOperations(Protocol):
 
     def refresh_connection(self, request: OperationRequest) -> OperationResult: ...
 
+    def upload_url(self, request: OperationRequest) -> OperationResult: ...
+
 
 
 
 
 #: Operation to method name. The dispatch table, derived from nothing and read by the dispatcher
-#: alone, with the completeness check below standing in for the eight `if` branches it replaces.
+#: alone, with the completeness check below standing in for the nine `if` branches it replaces.
 OPERATION_METHODS: Final[Mapping[Operation, str]] = {
     Operation.CREATE_SESSION: "create_session",
     Operation.RESOLVE_SESSION: "resolve_session",
@@ -128,6 +130,7 @@ OPERATION_METHODS: Final[Mapping[Operation, str]] = {
     Operation.RESUME_SESSION: "resume_session",
     Operation.TERMINATE_SESSION: "terminate_session",
     Operation.REFRESH_CONNECTION: "refresh_connection",
+    Operation.UPLOAD_URL: "upload_url",
 }
 
 if set(OPERATION_METHODS) != set(Operation):  # pragma: no cover - import-time invariant
@@ -194,6 +197,10 @@ class NotImplementedOperations:
         own. This seam stays here so a deployment that wires no issuer answers `501` rather than
         minting nothing quietly.
         """
+        raise OperationNotImplemented(request.operation.value)
+
+    def upload_url(self, request: OperationRequest) -> OperationResult:
+        """Generate a pre-signed S3 PUT URL for uploading to the session's workspace."""
         raise OperationNotImplemented(request.operation.value)
 
 

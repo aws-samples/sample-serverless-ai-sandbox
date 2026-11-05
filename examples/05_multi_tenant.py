@@ -1,7 +1,16 @@
 #!/usr/bin/env python3
-"""Multi-tenant isolation — two tenants, isolated data partitions."""
+"""Multi-tenant isolation — two tenants, isolated data partitions.
+
+Requires a multi-tenant deployment (`-c deploymentProfile=multi-tenant`).
+Single-tenant deployments use AWS_IAM auth and reject bearer tokens with 403.
+See the "Multi-tenancy" section in README.md for setup instructions.
+"""
 
 import os
+import sys
+
+import httpx
+
 from agent_sandbox import SandboxClient
 
 API_URL = os.environ.get("API_URL", "")
@@ -14,9 +23,21 @@ REGION = os.environ.get("AWS_REGION", "us-east-1")
 tenant_a = SandboxClient(api_url=API_URL, region=REGION, token="demo-token-tenant-a")
 tenant_b = SandboxClient(api_url=API_URL, region=REGION, token="demo-token-tenant-b")
 
-print("=== Tenant A ===")
-sessions_a = tenant_a.list_sessions()
-print(f"Tenant A sees {len(sessions_a)} session(s)")
+try:
+    print("=== Tenant A ===")
+    sessions_a = tenant_a.list_sessions()
+    print(f"Tenant A sees {len(sessions_a)} session(s)")
+except httpx.HTTPStatusError as e:
+    if e.response.status_code == 403:
+        print("\nThis example requires a multi-tenant deployment.")
+        print("Your current deployment uses single-tenant (AWS_IAM) authentication,")
+        print("which rejects bearer tokens.")
+        print("\nRedeploy with:  npx cdk deploy --all -c deploymentProfile=multi-tenant ...")
+        print("See the 'Multi-tenancy' section in README.md for details.")
+        tenant_a.close()
+        tenant_b.close()
+        sys.exit(1)
+    raise
 
 print("\n=== Tenant B ===")
 sessions_b = tenant_b.list_sessions()

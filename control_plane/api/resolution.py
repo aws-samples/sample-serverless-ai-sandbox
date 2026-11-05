@@ -580,7 +580,7 @@ class _Recreate:
 class ResolutionOperations(NotImplementedOperations):
     """The operation this task implements: `ResolveSession`, and no other.
 
-    Inherits the remaining seven seams so the routes those tasks own keep answering `501` naming the
+    Inherits the remaining eight seams so the routes those tasks own keep answering `501` naming the
     task that fills them, which is the shape
     :class:`~control_plane.api.connection.ConnectionOperations` established. `CreateSession` is
     reached through :attr:`creation` rather than inherited, because the create branch needs the

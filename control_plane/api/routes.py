@@ -1,5 +1,5 @@
 # kiro-classification: public
-"""The eight Control_Plane operations, their routes, and the authorization every route carries.
+"""The nine Control_Plane operations, their routes, and the authorization every route carries.
 
 This is the operation table of the design's Control_Plane section, as data rather than as prose.
 Three consumers read it and none of them may hold a second copy: the request dispatcher in
@@ -53,7 +53,7 @@ _PARAMETER_CLOSE: Final = "}"
 
 
 class Operation(Enum):
-    """The eight operations the Control_Plane exposes (R6.1).
+    """The nine operations the Control_Plane exposes (R6.1).
 
     The value of each member is the operation name the design's table uses, which is also the name
     that appears in a lifecycle audit record and in a metric dimension, so it is written once here.
@@ -67,6 +67,7 @@ class Operation(Enum):
     RESUME_SESSION = "ResumeSession"
     TERMINATE_SESSION = "TerminateSession"
     REFRESH_CONNECTION = "RefreshConnection"
+    UPLOAD_URL = "UploadUrl"
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +149,12 @@ ROUTES: Final[tuple[RouteDefinition, ...]] = (
         Operation.REFRESH_CONNECTION,
         "POST",
         f"/sessions/{{{SESSION_ID_PARAMETER}}}/connection",
+    ),
+    # Pre-signed S3 upload URL for the session's persistent workspace.
+    RouteDefinition(
+        Operation.UPLOAD_URL,
+        "POST",
+        f"/sessions/{{{SESSION_ID_PARAMETER}}}/upload-url",
     ),
 )
 

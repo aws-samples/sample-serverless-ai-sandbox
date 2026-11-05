@@ -51,8 +51,9 @@ def main():
         print("Set API_URL environment variable.")
         exit(1)
     region = os.environ.get("AWS_REGION", "us-east-1")
+    token = os.environ.get("SANDBOX_TOKEN")
 
-    client = SandboxClient(api_url=api_url, region=region)
+    client = SandboxClient(api_url=api_url, region=region, token=token)
 
     kwargs = {"max_duration_seconds": 180, "idle_seconds": 60}
     if args.image:

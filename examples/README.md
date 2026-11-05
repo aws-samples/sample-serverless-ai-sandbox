@@ -19,12 +19,24 @@ pip install -e sdk/python
 # Set your API URL and region
 export API_URL="https://<your-api-id>.execute-api.<region>.amazonaws.com"
 export AWS_REGION="us-east-1"
-# For multi-tenant: export SANDBOX_TOKEN="demo-token-tenant-a"
+# For multi-tenant deployments (-c deploymentProfile=multi-tenant):
+export SANDBOX_TOKEN="demo-token-tenant-a"
 ```
 
 > **Important**: Always run examples from the activated virtual environment.
 > If you see `ModuleNotFoundError: No module named 'agent_sandbox'`, activate
 > the venv first: `source .venv/bin/activate`
+
+### Authentication
+
+All examples (except 05) work on **both** deployment profiles:
+
+| Profile | Auth | Setup |
+|---------|------|-------|
+| Single-tenant (default) | AWS SigV4 | Just `API_URL` and `AWS_REGION`. Uses your AWS credentials. |
+| Multi-tenant | Bearer token | Also set `SANDBOX_TOKEN` to a valid token (e.g. `demo-token-tenant-a`). |
+
+Example 05 is multi-tenant only — it uses hardcoded demo tokens to demonstrate tenant isolation.
 
 ## Run
 
@@ -48,7 +60,7 @@ uv run python examples/07_document_processing.py
 | 04 | Suspend / Resume | Suspend a session (memory + disk snapshot), resume later |
 | 05 | Multi-Tenant | Bearer token auth, tenant isolation |
 | 06 | Software Factory | AI coding agent (opencode) with Node.js, Bedrock, Git — requires `software-factory` image |
-| 07 | Document Processing | Due diligence clean room: upload documents, extract, analyze with Bedrock |
+| 07 | Document Processing | Due diligence clean room: four upload patterns (write_file, S3 direct, workspace sync, pre-signed URL), extract, analyze with Bedrock |
 
 ### Example 06: Software Factory
 

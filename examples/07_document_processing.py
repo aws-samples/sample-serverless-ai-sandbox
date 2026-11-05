@@ -2,12 +2,13 @@
 # kiro-classification: public
 """Document processing in an isolated sandbox — upload, extract, analyze, destroy.
 
-Demonstrates use case with three document ingestion
+Demonstrates use case with four document ingestion
 patterns:
 
   Option A: SDK write_file() — caller pushes bytes directly into the sandbox
   Option B: S3 → sandbox — upload to S3 workspace, appears at /mnt/workspace
   Option C: Sandbox → S3 — write results to /mnt/workspace, read from S3
+  Option D: SDK upload_file() — pre-signed S3 URL, no API Gateway size limit
 
 Each session gets its own Firecracker MicroVM with:
   - Zero default egress (no internet unless proxied)
@@ -37,8 +38,9 @@ if not API_URL:
     print("Example: export API_URL=https://xxx.execute-api.us-east-1.amazonaws.com")
     exit(1)
 REGION = os.environ.get("AWS_REGION", "us-east-1")
+TOKEN = os.environ.get("SANDBOX_TOKEN")
 
-client = SandboxClient(api_url=API_URL, region=REGION)
+client = SandboxClient(api_url=API_URL, region=REGION, token=TOKEN)
 
 # A sample document (text for simplicity — works the same with PDF bytes)
 SAMPLE_DOCUMENT = """\
@@ -238,6 +240,27 @@ with client.create_session(
     # Note: /mnt/workspace → S3 sync is eventual (~60s). For immediate access
     # from outside the sandbox, use session.read_file() instead of S3 API.
     print(f"  (S3 sync is eventual — use session.read_file() for immediate access)\n")
+
+    # =================================================================
+    # Option D: SDK upload_file() — pre-signed S3 URL (no size limit)
+    # =================================================================
+    print("--- Option D: SDK upload_file() (pre-signed S3 URL) ---")
+    workspace = session.session_data.get("workspace", {})
+    if workspace.get("bucket"):
+        # upload_file() gets a pre-signed URL from the API, then PUTs directly
+        # to S3. The file never passes through API Gateway — no 10 MB limit.
+        # Works for both SigV4 and bearer-token (multi-tenant) callers.
+        session.upload_file("agreement_via_presigned.txt", SAMPLE_DOCUMENT)
+        time.sleep(2)  # S3 Files NFS sync is near-instant but allow a moment
+        result = session.execute(
+            "ls /mnt/workspace/agreement_via_presigned.txt"
+            " && python3 /tmp/extract.py /mnt/workspace/agreement_via_presigned.txt"
+        )
+        lines = result.stdout.strip().split("\n")
+        print(f"  File visible at /mnt/workspace: {lines[0] if lines else '?'}")
+        print(f"  Extraction from pre-signed upload: OK\n")
+    else:
+        print("  Workspace not available (deploy with S3 Files and persistence=True)\n")
 
     # =================================================================
     # Bedrock AI analysis

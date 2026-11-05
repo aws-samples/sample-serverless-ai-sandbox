@@ -266,6 +266,52 @@ export class SandboxSession {
     return this.#sandboxRequest(() => this.#getSandbox().deleteFile(path, options));
   }
 
+
+  // ------------------------------------------------------------------
+  // Workspace upload (via pre-signed S3 URL)
+  // ------------------------------------------------------------------
+
+  /**
+   * Upload a file to the session's persistent workspace via S3.
+   *
+   * The file appears at `/mnt/workspace/{remotePath}` inside the sandbox.
+   * This method requests a pre-signed S3 PUT URL from the Control Plane,
+   * then uploads directly to S3 — the file never passes through API Gateway,
+   * so there is no payload size limit beyond S3's 5 GB single-PUT maximum.
+   *
+   * Requires `persistence: true` on the session.
+   *
+   * @param remotePath - Path relative to `/mnt/workspace/` (e.g. `"docs/contract.pdf"`).
+   * @param data - File content as a string (UTF-8 encoded) or Uint8Array.
+   */
+  async uploadFile(remotePath: string, data: string | Uint8Array): Promise<void> {
+    const bytes = typeof data === 'string'
+      ? new TextEncoder().encode(data)
+      : data;
+
+    // Step 1: get pre-signed URL from the Control Plane
+    const resp = await this.#cpRequest(
+      'POST',
+      `/sessions/${this.#sessionId}/upload-url`,
+      { filename: remotePath },
+    );
+    const uploadUrl = resp.uploadUrl as string;
+    if (!uploadUrl) {
+      throw new Error('Control Plane did not return an uploadUrl');
+    }
+
+    // Step 2: upload directly to S3 (bypasses API Gateway entirely)
+    const putResp = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: bytes,
+    });
+    if (!putResp.ok) {
+      throw new Error(
+        `S3 upload failed: ${putResp.status} ${putResp.statusText}`,
+      );
+    }
+  }
+
   // ------------------------------------------------------------------
   // Async disposable — automatic cleanup
   // ------------------------------------------------------------------
