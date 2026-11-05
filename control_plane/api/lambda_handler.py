@@ -544,8 +544,10 @@ class _DemoOperations(CreationOperations):
         else:
             s3_key = f"{_WORKSPACE_PREFIX}/{record.tenant_id}/{pid_safe}/{record.session_id}/{filename}"
 
+        from botocore.config import Config
+
         region = os.environ.get("AWS_REGION", "us-east-1")
-        s3 = boto3.client("s3", region_name=region)
+        s3 = boto3.client("s3", region_name=region, config=Config(signature_version="s3v4"))
         url = s3.generate_presigned_url(
             "put_object",
             Params={"Bucket": bucket, "Key": s3_key},
