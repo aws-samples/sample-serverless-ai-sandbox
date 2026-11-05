@@ -354,12 +354,12 @@ class RecordingS3:
 
 @dataclass(frozen=True, slots=True)
 class WiredOperations:
-    """The three operations that are implemented, with the other five still answering `501`.
+    """The three operations that are implemented, with the other six still answering `501`.
 
-    The unimplemented five are delegated to :class:`NotImplementedOperations` rather than restated,
+    The unimplemented six are delegated to :class:`NotImplementedOperations` rather than restated,
     so this double asserts nothing about behaviour task 6.18 owns. What matters for this property is
     that the dispatcher resolves the named Session inside the caller's own partition *before* the
-    operation runs, which happens on all five of those routes whatever they then answer.
+    operation runs, which happens on all six of those routes whatever they then answer.
     """
 
     resolution: ResolutionOperations
@@ -400,6 +400,10 @@ class WiredOperations:
     def terminate_session(self, request: OperationRequest) -> OperationResult:
         self.seen.append(request)
         return self.unimplemented.terminate_session(request)
+
+    def upload_url(self, request: OperationRequest) -> OperationResult:
+        self.seen.append(request)
+        return self.unimplemented.upload_url(request)
 
 
 def invocation(

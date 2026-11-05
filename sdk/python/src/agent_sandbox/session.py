@@ -552,6 +552,52 @@ class SandboxSession:
             timeout=timeout,
         )
 
+
+    # ------------------------------------------------------------------
+    # Workspace upload (via pre-signed S3 URL)
+    # ------------------------------------------------------------------
+
+    def upload_file(self, remote_path: str, data: str | bytes) -> None:
+        """Upload a file to the session's persistent workspace via S3.
+
+        The file appears at ``/mnt/workspace/{remote_path}`` inside the sandbox.
+        This method requests a pre-signed S3 PUT URL from the Control Plane,
+        then uploads directly to S3 — the file never passes through API Gateway,
+        so there is no payload size limit beyond S3's 5 GB single-PUT maximum.
+
+        Requires ``persistence=True`` on the session.
+
+        Parameters
+        ----------
+        remote_path:
+            Path relative to ``/mnt/workspace/`` (e.g. ``"docs/contract.pdf"``).
+        data:
+            File content as a string (UTF-8 encoded) or bytes.
+
+        Raises
+        ------
+        httpx.HTTPStatusError
+            If the Control Plane rejects the request (e.g. persistence not enabled).
+        """
+        if isinstance(data, str):
+            data = data.encode()
+
+        # Step 1: get pre-signed URL from the Control Plane
+        resp = self._cp_request(
+            "POST",
+            f"/sessions/{self.session_id}/upload-url",
+            body={"filename": remote_path},
+        )
+        upload_url = resp["uploadUrl"]
+
+        # Step 2: upload directly to S3 (bypasses API Gateway entirely)
+        client = self.http_client
+        if client is not None:
+            put_resp = client.put(upload_url, content=data)
+        else:
+            put_resp = httpx.put(upload_url, content=data)
+        put_resp.raise_for_status()
+
     # ------------------------------------------------------------------
     # Git operations
     # ------------------------------------------------------------------

@@ -90,7 +90,7 @@ def connection_payload(
 class ConnectionOperations(NotImplementedOperations):
     """The operations implemented by this task: `RefreshConnection`, and no other.
 
-    Inherits the remaining seven seams so that the routes those tasks own keep answering `501`
+    Inherits the remaining eight seams so that the routes those tasks own keep answering `501`
     naming the task that fills them, rather than this class having to restate them or a partial
     implementation reaching the gateway as a `500`.
     """

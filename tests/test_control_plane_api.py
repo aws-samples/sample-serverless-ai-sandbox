@@ -1,5 +1,5 @@
 # kiro-classification: public
-"""The eight operations, the `AWS_IAM` route set, and the fixed not-found response.
+"""The nine operations, the `AWS_IAM` route set, and the fixed not-found response.
 
 Every assertion here is deterministic. Phase 6's properties belong to their own tasks — Property 11
 to admission validation, Property 13 to Tenant partition confinement — so nothing in this file draws
@@ -188,7 +188,7 @@ def api(store: FakeStore | None = None, operations: Any = None) -> ControlPlaneA
 
 
 def test_there_are_exactly_eight_operations_with_the_designed_routes() -> None:
-    assert len(Operation) == 8
+    assert len(Operation) == 9
     assert {route.route_key for route in ROUTES} == {
         "POST /sessions",
         "POST /sessions/resolve",
@@ -198,6 +198,7 @@ def test_there_are_exactly_eight_operations_with_the_designed_routes() -> None:
         "POST /sessions/{id}/resume",
         "POST /sessions/{id}/terminate",
         "POST /sessions/{id}/connection",
+        "POST /sessions/{id}/upload-url",
     }
 
 
@@ -207,14 +208,15 @@ def test_every_operation_has_exactly_one_route_and_one_dispatch_entry() -> None:
     assert len(ROUTES) == len(Operation)
 
 
-def test_five_operations_name_a_session_in_their_path() -> None:
-    # The five on which R6.9's not-found is reachable; create, resolve and list name none.
+def test_six_operations_name_a_session_in_their_path() -> None:
+    # The six on which R6.9's not-found is reachable; create, resolve and list name none.
     assert OPERATIONS_NAMING_A_SESSION == {
         Operation.GET_SESSION,
         Operation.SUSPEND_SESSION,
         Operation.RESUME_SESSION,
         Operation.TERMINATE_SESSION,
         Operation.REFRESH_CONNECTION,
+        Operation.UPLOAD_URL,
     }
 
 

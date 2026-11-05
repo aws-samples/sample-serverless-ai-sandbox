@@ -1,5 +1,5 @@
 # kiro-classification: public
-"""The Control_Plane request surface: eight operations, one authorizer, one not-found response.
+"""The Control_Plane request surface: nine operations, one authorizer, one not-found response.
 
 `ROUTES` is the operation table (R6.1) and every entry carries `AWS_IAM` (R6.3, R6.22).
 `ControlPlaneApi` dispatches onto a `SessionOperations` implementation, resolving the Session inside
