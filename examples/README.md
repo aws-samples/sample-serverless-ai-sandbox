@@ -48,7 +48,7 @@ uv run python examples/07_document_processing.py
 | 04 | Suspend / Resume | Suspend a session (memory + disk snapshot), resume later |
 | 05 | Multi-Tenant | Bearer token auth, tenant isolation |
 | 06 | Software Factory | AI coding agent (opencode) with Node.js, Bedrock, Git — requires `software-factory` image |
-| 07 | Document Processing | Due diligence clean room: upload documents, extract, analyze with Bedrock |
+| 07 | Document Processing | Due diligence clean room: four upload patterns (write_file, S3 direct, workspace sync, pre-signed URL), extract, analyze with Bedrock |
 
 ### Example 06: Software Factory
 
