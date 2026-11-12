@@ -21,9 +21,11 @@
 
 | Document | Description |
 |----------|-------------|
-| [Per-Tenant Egress Design](per-tenant-egress-design.md) | Per-group/per-tenant/per-user egress policies — IPv6 identification, IAM tags, Lambda authorizer, Cognito JWT, DDB policy configuration, fallback chain. |
-| [Egress Allowlist Guide](egress-allowlist-guide.md) | Configure which destinations sandboxes can reach — policy schema, update commands, common configurations. |
-| [Cognito Integration Guide](cognito-auth.md) | Migrate from Lambda authorizer to Cognito JWT for production multi-tenant deployments. Includes `custom:egress_policy` attribute for per-user policies. |
+| [Single-Tenant Setup](single-tenant-setup.md) | Per-user egress policies via IAM tags, SigV4 auth, policy configuration. |
+| [Multi-Tenant Setup](multi-tenant-setup.md) | Tenant onboarding — token map, per-group egress, DDB policy seeding, end-to-end. |
+| [Per-Tenant Egress Design](per-tenant-egress-design.md) | Architecture deep-dive — IPv6 identification, PP2, fallback chain, security properties. |
+| [Egress Allowlist Guide](egress-allowlist-guide.md) | Configure which destinations sandboxes can reach — policy schema, update commands. |
+| [Cognito Integration Guide](cognito-auth.md) | Migrate from Lambda authorizer to Cognito JWT for production multi-tenant. |
 
 ## Storage
 
