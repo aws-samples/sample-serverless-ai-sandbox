@@ -94,9 +94,16 @@ aws lambda update-function-configuration \
 Edit `iac/control_plane_stack.py`, update the `TENANT_TOKEN_MAP` dict in
 `_lambda_authorizer()`, and redeploy.
 
-> **Production**: For production deployments, replace the Lambda authorizer with
-> Cognito JWT — see [Cognito Integration Guide](cognito-auth.md). With Cognito,
-> tenants are managed as users in the user pool, not as tokens in an env var.
+> **Scaling note**: The `TENANT_TOKEN_MAP` env var is fine for demos and small
+> teams (~50 tokens max — Lambda env vars are capped at 4KB). For larger
+> deployments that want to keep using the Lambda authorizer (not Cognito),
+> modify the authorizer code (`control_plane/authorizer/handler.py`) to read
+> tokens from **DynamoDB** or **Secrets Manager** instead of the env var.
+> A DynamoDB table with `pk=TOKEN#<bearer-token>` → `{tenantId, policyGroup}`
+> adds ~5ms latency but scales to any number of tenants without redeployment.
+>
+> For self-service user management, MFA, and federation, use **Cognito JWT**
+> instead — see [Cognito Integration Guide](cognito-auth.md).
 
 ## Step 2: Add Egress Policies (Optional)
 
