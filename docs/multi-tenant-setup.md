@@ -8,12 +8,34 @@ in a multi-tenant deployment (`-c deploymentProfile=multi-tenant`).
 ## Prerequisites
 
 - Deployed with `-c deploymentProfile=multi-tenant`
-- API Gateway uses the Lambda authorizer (bearer token auth)
+
+## Two Auth Options
+
+Multi-tenant supports two authorization mechanisms. Both resolve `tenantId`,
+`principalId`, and `policyGroup` per request:
+
+| | Lambda Authorizer (default) | Cognito JWT |
+|---|---|---|
+| **Setup** | Edit env var on Lambda | Create Cognito User Pool + app client |
+| **Token source** | Static tokens in `TENANT_TOKEN_MAP` | Cognito issues JWTs |
+| **User management** | Manual (add/remove tokens) | Cognito hosted UI, federation, MFA |
+| **Policy group** | `policyGroup` field in token map | `custom:egress_policy` JWT claim |
+| **Per-request cost** | Lambda invocation (~$0.20/1M) | Zero (API Gateway validates natively) |
+| **Best for** | Development, demos, small teams | Production, self-service, >10 users |
+
+**Lambda authorizer** is deployed by default with `-c deploymentProfile=multi-tenant`.
+The rest of this guide covers both options.
+
+**Cognito JWT** is the recommended production path. See the
+[Cognito Integration Guide](cognito-auth.md) for the full migration — user pool
+creation, `custom:tenantId` + `custom:egress_policy` attributes, JWT authorizer
+CDK swap, and SDK auth changes. Tested at scale: 200 users, 5 tenants, JWT
+authorizer with per-user egress policies.
 
 ## How Tenant Resolution Works
 
-Every API request includes a bearer token in the `Authorization` header. The Lambda
-authorizer validates the token against `TENANT_TOKEN_MAP` and returns:
+Every API request includes a token in the `Authorization` header. The authorizer
+(Lambda or Cognito JWT) validates it and returns:
 
 - `tenantId` — which DynamoDB partition the session belongs to
 - `principalId` — the authenticated caller identity (for workspace scoping)
