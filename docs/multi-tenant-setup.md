@@ -24,13 +24,19 @@ Multi-tenant supports two authorization mechanisms. Both resolve `tenantId`,
 | **Best for** | Development, demos, small teams | Production, self-service, >10 users |
 
 **Lambda authorizer** is deployed by default with `-c deploymentProfile=multi-tenant`.
-The rest of this guide covers both options.
+As shipped, it uses a hardcoded JSON env var (`TENANT_TOKEN_MAP`) to map bearer
+tokens to tenants. **This is a demo configuration** — the env var is capped at 4KB
+(~50 tokens), tokens are static, and every change requires a Lambda update. There is
+no user management, no password reset, no MFA. For anything beyond a demo or small
+team, you need either a backing database for the authorizer or Cognito.
 
-**Cognito JWT** is the recommended production path. See the
-[Cognito Integration Guide](cognito-auth.md) for the full migration — user pool
-creation, `custom:tenantId` + `custom:egress_policy` attributes, JWT authorizer
-CDK swap, and SDK auth changes. Tested at scale: 200 users, 5 tenants, JWT
-authorizer with per-user egress policies.
+**Cognito JWT** is the recommended production path. With Cognito, tenant resolution
+happens **at the API Gateway level** — no Lambda invocation per request, no token
+map to manage, no 4KB limit. Users authenticate against the Cognito User Pool, API
+Gateway validates the JWT natively, and tenant/policy group come from JWT claims
+(`custom:tenantId`, `custom:egress_policy`). See the
+[Cognito Integration Guide](cognito-auth.md) for the full migration. Tested at
+scale: 200 users, 5 tenants, per-user egress policies.
 
 ## How Tenant Resolution Works
 
