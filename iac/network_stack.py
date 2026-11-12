@@ -532,6 +532,8 @@ class NetworkStack(cdk.Stack):
         subnet_index = 4
         connector_ipv6: list[ec2.CfnSubnetCidrBlock] = []
 
+        proxy_cidr_blocks: list[ec2.CfnSubnetCidrBlock] = []
+
         for group_name in [_connector_subnet_group(g) for g in self.connector_generations] + [PROXY_SUBNET_GROUP]:
             for subnet in self.vpc.select_subnets(subnet_group_name=group_name).subnets:
                 cidr_block = cdk.Fn.select(subnet_index, cdk.Fn.cidr(cdk.Fn.select(0, self.vpc.vpc_ipv6_cidr_blocks), 16, "64"))
@@ -543,7 +545,43 @@ class NetworkStack(cdk.Stack):
                 assoc.add_dependency(ipv6_cidr)
                 if _connector_subnet_group(self.connector_generations[0]) in group_name:
                     connector_ipv6.append(assoc)
+                if group_name == PROXY_SUBNET_GROUP:
+                    proxy_cidr_blocks.append(assoc)
                 subnet_index += 1
+
+        # Proxy subnets need AssignIpv6AddressOnCreation=true so Fargate tasks get
+        # IPv6 addresses for the dualstack NLB target group. This can't be set on the
+        # CfnSubnet directly (CDK issue #28843: race condition with the IPv6 CIDR on
+        # first deploy). Instead, use AwsCustomResource to call ModifySubnetAttribute
+        # after the CfnSubnetCidrBlock is created.
+        import aws_cdk.custom_resources as cr
+        for i, subnet in enumerate(self.vpc.select_subnets(subnet_group_name=PROXY_SUBNET_GROUP).subnets):
+            enable_ipv6 = cr.AwsCustomResource(
+                self, f"EnableIpv6OnProxy{i}",
+                on_create=cr.AwsSdkCall(
+                    service="EC2",
+                    action="modifySubnetAttribute",
+                    parameters={
+                        "SubnetId": subnet.subnet_id,
+                        "AssignIpv6AddressOnCreation": {"Value": True},
+                    },
+                    physical_resource_id=cr.PhysicalResourceId.of(f"enable-ipv6-{subnet.subnet_id}"),
+                ),
+                on_delete=cr.AwsSdkCall(
+                    service="EC2",
+                    action="modifySubnetAttribute",
+                    parameters={
+                        "SubnetId": subnet.subnet_id,
+                        "AssignIpv6AddressOnCreation": {"Value": False},
+                    },
+                ),
+                policy=cr.AwsCustomResourcePolicy.from_sdk_calls(
+                    resources=cr.AwsCustomResourcePolicy.ANY_RESOURCE,
+                ),
+            )
+            # Must wait for the IPv6 CIDR to be on the subnet first
+            if i < len(proxy_cidr_blocks):
+                enable_ipv6.node.add_dependency(proxy_cidr_blocks[i])
 
         # DualStack connector must wait for IPv6 on its own subnets
         for res in connector_ipv6:
