@@ -23,6 +23,8 @@ def test_there_are_exactly_two_indexes_with_the_designed_key_schemas() -> None:
     assert [index.name for index in t.INDEXES] == [
         "deadline-index",
         "tenant-state-index",
+        "registration-token-index",
+        "ipv6-address-index",
     ]
 
     # The Reaper's only read path is sharded rather than Tenant-scoped (R10.8).
@@ -45,6 +47,7 @@ def test_every_key_attribute_is_declared_with_its_type() -> None:
     expected = {t.PARTITION_KEY_ATTRIBUTE, t.SORT_KEY_ATTRIBUTE}
     for index in t.INDEXES:
         expected |= {index.partition_key, index.sort_key}
+    expected.discard(None)  # hash-only indexes have no sort key
     assert set(t.ATTRIBUTE_DEFINITIONS) == expected
     assert t.ATTRIBUTE_DEFINITIONS[t.PARTITION_KEY_ATTRIBUTE] is t.AttributeType.STRING
     assert t.ATTRIBUTE_DEFINITIONS["reapDeadline"] is t.AttributeType.NUMBER

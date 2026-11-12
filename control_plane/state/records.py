@@ -232,6 +232,9 @@ class SessionRecord:
     workspace_affinity_key: str = ""  # shared workspace key for persistence
     principal_id: str = ""  # authenticated caller identity for workspace scoping
     image_ref: str = ""  # per-session image override; empty = deployment default
+    registration_token: str = ""  # opaque token for IPv6 registration (per-tenant egress)
+    policy_group: str = ""  # resolved egress policy group
+    ipv6_address: str = ""  # MicroVM IPv6 /128, written by proxy on registration
     state_reason: str | None = None
     sandbox_handle: Mapping[str, Any] | None = None
     sandbox_id: str | None = None
@@ -314,6 +317,12 @@ class SessionRecord:
             item["connectionPublishedAt"] = self.connection_published_at
         if self.affinity_key_digest is not None:
             item["affinityKeyDigest"] = self.affinity_key_digest
+        if self.registration_token:
+            item["registrationToken"] = self.registration_token
+        if self.policy_group:
+            item["policyGroup"] = self.policy_group
+        if self.ipv6_address:
+            item["ipv6Address"] = self.ipv6_address
         return item
 
     @classmethod
@@ -353,6 +362,9 @@ class SessionRecord:
             workspace_affinity_key=item.get("workspaceAffinityKey", ""),
             principal_id=item.get("principalId", ""),
             image_ref=item.get("imageRef", ""),
+            registration_token=item.get("registrationToken", ""),
+            policy_group=item.get("policyGroup", ""),
+            ipv6_address=item.get("ipv6Address", ""),
             continuation_paths=_string_tuple(item, "continuationPaths"),
             state_reason=_optional_string(item, "stateReason"),
             sandbox_handle=None if handle is None else dict(handle),

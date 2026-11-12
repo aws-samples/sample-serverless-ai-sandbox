@@ -470,6 +470,12 @@ class OrchestrationRowStore(Protocol):
     one, or publishing a credential onto one, would advertise something that no longer exists.
     """
 
+    def update_registration_token(
+        self, *, partition_key: str, sort_key: str, token: str, policy_group: str, updated_at: int,
+    ) -> None:
+        """`SET registrationToken = :token, policyGroup = :pg, updatedAt = :at`."""
+        ...
+
     def record_sandbox(self, recording: SandboxRecording) -> None:
         """`SET sandboxHandle = :handle, sandboxId = :id, updatedAt = :at`.
 
@@ -728,11 +734,21 @@ class SessionOrchestrator:
             record, state=LifecycleState.PROVISIONING, reason=PROVISIONING_REASON
         )
 
-        status = self.provider.provision(
-            policy.applied_to(
-                self._specification(orchestration, record), provider=self.provider
-            )
+        # Write the registration token to DDB BEFORE provisioning so the proxy
+        # can look it up when the MicroVM registers its IPv6 /128.
+        spec = policy.applied_to(
+            self._specification(orchestration, record), provider=self.provider
         )
+        if spec.registration_token:
+            self.store.update_registration_token(
+                partition_key=record.pk,
+                sort_key=record.sort_key,
+                token=spec.registration_token,
+                policy_group=record.policy_group if hasattr(record, 'policy_group') else "",
+                updated_at=self._now(),
+            )
+
+        status = self.provider.provision(spec)
 
         self.store.record_sandbox(
             SandboxRecording(
@@ -1297,12 +1313,21 @@ class SessionOrchestrator:
             s3files_filesystem_id=self.settings.s3files_filesystem_id if orchestration.persistence else "",
             s3files_access_point_id=self._resolve_access_point(orchestration) if orchestration.persistence else "",
             s3files_mount_target_ip=(self.settings.s3files_mount_target_ips.split(",")[0] if self.settings.s3files_mount_target_ips else "") if orchestration.persistence else "",
+            registration_token=self._registration_token(),
             start_config=configuration.document,
             start_config_ref=configuration.reference,
             tags=sandbox_tags(
                 tenant_id=orchestration.tenant_id, session_id=orchestration.session_id
             ),
         )
+
+    def _registration_token(self) -> str:
+        """Generate an opaque token for per-tenant IPv6 registration, or empty if not needed."""
+        import os
+        if os.environ.get("EGRESS_POLICY") != "per-tenant":
+            return ""
+        import uuid
+        return str(uuid.uuid4())
 
     def _resolve_access_point(self, orchestration: OrchestrationInput) -> str:
         """Resolve or create an S3 Files access point for workspace isolation.

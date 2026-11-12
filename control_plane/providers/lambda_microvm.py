@@ -769,6 +769,19 @@ def _run_hook_payload(spec: SandboxSpec) -> bytes:
     # Inject runtime configuration alongside the start config.
     # The runtime extracts these from the envelope on /run.
     extras: dict[str, str] = {}
+    # Per-tenant egress: include the opaque registration token + proxy IPv6 address
+    if spec.registration_token:
+        extras["registrationToken"] = spec.registration_token
+        # MicroVM DNS can't resolve AAAA records — pass the proxy IPv6 address directly
+        if spec.egress_endpoint:
+            import socket as _sock
+            try:
+                aaaa = _sock.getaddrinfo(spec.egress_endpoint, 443, _sock.AF_INET6, _sock.SOCK_STREAM)
+                if aaaa:
+                    extras["proxyIPv6"] = aaaa[0][4][0]
+            except Exception:
+                pass  # No AAAA — proxy might be IPv4-only
+
     if spec.egress_endpoint:
         extras["egressEndpoint"] = spec.egress_endpoint
     if spec.s3files_filesystem_id:

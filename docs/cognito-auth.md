@@ -22,11 +22,65 @@ for native JWT validation, user management, federation, and MFA.
 ### 1. Create a Cognito User Pool
 
 ```bash
+# Basic (tenant isolation only):
 aws cognito-idp create-user-pool \
   --pool-name sandbox-users \
-  --schema Name=custom:tenantId,AttributeDataType=String,Mutable=true \
+  --schema Name=tenantId,AttributeDataType=String,Mutable=true \
+  --auto-verified-attributes email \
+  --policies 'PasswordPolicy={MinimumLength=12}'
+
+# With per-group egress (tenant isolation + per-user egress policies):
+# See "Per-group egress" section below for the full command.
+```
+
+
+> **Per-group egress**: To enable per-user egress policies with Cognito, add the
+> `custom:egress_policy` attribute to the user pool schema. This attribute controls
+> which egress policy group applies to a user's sessions (e.g., `developer`, `analyst`).
+> Users without this attribute get the tenant default or global default policy.
+
+```bash
+aws cognito-idp create-user-pool \
+  --pool-name sandbox-users \
+  --schema \
+    Name=tenantId,AttributeDataType=String,Mutable=true \
+    Name=egress_policy,AttributeDataType=String,Mutable=true \
   --auto-verified-attributes email \
   --policies 'PasswordPolicy={MinimumLength=12,RequireUppercase=true,RequireLowercase=true,RequireNumbers=true,RequireSymbols=true}'
+```
+
+When creating users, set both attributes:
+
+```bash
+aws cognito-idp admin-create-user \
+  --user-pool-id <pool-id> \
+  --username developer@example.com \
+  --user-attributes \
+    Name=custom:tenantId,Value=acme-corp \
+    Name=custom:egress_policy,Value=developer
+```
+
+The API handler reads `custom:egress_policy` from the JWT claims automatically.
+Sessions for this user will use the `developer` egress policy (e.g., PyPI + GitHub).
+Users without `custom:egress_policy` get the tenant default or global default.
+
+### Policy resolution chain
+
+For every session, the API handler resolves the egress policy group:
+
+```
+1. JWT claim custom:egress_policy (Cognito)     → e.g., "developer"
+   OR Lambda authorizer context policyGroup      → e.g., "developer"
+   OR IAM tag SandboxEgressPolicy (SigV4)        → e.g., "developer"
+2. If none → "default"
+```
+
+The proxy then applies the matching policy:
+
+```
+EGRESS_POLICY#GROUP#developer    → group-specific rules (if exists)
+EGRESS_POLICY#TENANT#acme-corp   → tenant default (if exists)
+EGRESS_POLICY                    → global default (fallback)
 ```
 
 ### 2. Create an App Client

@@ -118,10 +118,12 @@ class EgressStack(cdk.Stack):
         construct_id: str,
         *,
         network: NetworkStack,
+        sessions_table_name: str = "",
         **kwargs: Any,
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
         self.network = network
+        self._sessions_table_name = sessions_table_name
         self.add_stack_dependency(network)
 
         self._proxy_image_uri = self.node.try_get_context(PROXY_IMAGE_URI_CONTEXT_KEY) or ""
@@ -144,6 +146,18 @@ class EgressStack(cdk.Stack):
         self.task_definition = self._task_definition()
         self.service = self._service()
         self.load_balancer, self.target_group = self._load_balancer()
+
+        # Proxy reads the session table for registration token lookups
+        if self._sessions_table_name:
+            self.task_definition.task_role.add_to_principal_policy(
+                iam.PolicyStatement(
+                    actions=["dynamodb:Query", "dynamodb:GetItem", "dynamodb:UpdateItem"],
+                    resources=[
+                        self.format_arn(service="dynamodb", resource="table", resource_name=self._sessions_table_name),
+                        self.format_arn(service="dynamodb", resource="table", resource_name=f"{self._sessions_table_name}/index/*"),
+                    ],
+                )
+            )
 
     @property
     def upstream_secret_arns(self) -> tuple[str, ...]:
@@ -372,6 +386,8 @@ class EgressStack(cdk.Stack):
                 _CACHE_TTL_VARIABLE: str(POLICY_CACHE_TTL_SECONDS),
                 _PRIVATE_CA_VARIABLE: self.certificate_authority.attr_arn,
                 _CONFIG_TABLE_VARIABLE: self.config_table.table_name,
+                "EGRESS_POLICY": "per-tenant",
+                "SESSION_TABLE": self._sessions_table_name,
             },
         )
         task_definition.add_to_execution_role_policy(
@@ -497,6 +513,7 @@ class EgressStack(cdk.Stack):
             vpc_subnets=ec2.SubnetSelection(subnet_group_name=PROXY_SUBNET_GROUP),
             security_groups=[self.network.load_balancer_security_group],
             cross_zone_enabled=True,
+            ip_address_type=elbv2.IpAddressType.DUAL_STACK,
         )
         listener = balancer.add_listener("Tls", port=EGRESS_TLS_PORT)
         target_group = listener.add_targets(
@@ -508,4 +525,8 @@ class EgressStack(cdk.Stack):
                 )
             ],
         )
+        # IPv6 target group + PP2 for per-VM identification
+        cfn_tg = target_group.node.default_child
+        cfn_tg.add_property_override("IpAddressType", "ipv6")
+        target_group.set_attribute("proxy_protocol_v2.enabled", "true")
         return balancer, target_group

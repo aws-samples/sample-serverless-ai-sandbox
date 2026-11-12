@@ -51,7 +51,7 @@ _SERVICE_NAME: str = "lambda"
 _DOCKERFILE: str = """\
 FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 WORKDIR /var/task
-RUN dnf -y --allowerasing install amazon-efs-utils nfs-utils python3.13 git jq iptables iproute \\
+RUN dnf -y --allowerasing install amazon-efs-utils nfs-utils python3.13 git jq iptables nftables iproute \\
     && dnf clean all && rm -rf /var/cache/dnf
 RUN python3.13 -m ensurepip --upgrade \\
     && python3.13 -m pip install --no-cache-dir --upgrade pip

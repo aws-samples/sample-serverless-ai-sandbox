@@ -38,43 +38,56 @@ All examples (except 05) work on **both** deployment profiles:
 
 Example 05 is multi-tenant only — it uses hardcoded demo tokens to demonstrate tenant isolation.
 
+## Examples
+
+| # | Name | What it shows | Extra args |
+|---|------|---------------|------------|
+| 01 | Hello Sandbox | Create a session, run a command, see stdout | — |
+| 02 | Data Analysis | Upload CSV, install pandas, run analysis | — |
+| 03 | Persistent Workspace | `/mnt/workspace` backed by S3 Files, data survives termination | Requires [S3 Files setup](../docs/persistence-setup.md) |
+| 04 | Suspend / Resume | Suspend a session (memory + disk snapshot), resume later | — |
+| 05 | Multi-Tenant | Bearer token auth, tenant isolation | Multi-tenant deploy only |
+| 06 | Software Factory | AI coding agent (opencode) with Node.js, Bedrock, Git | `--image` required |
+| 07 | Document Processing | Upload documents, extract data, analyze with Bedrock, four ingestion patterns | Requires [S3 Files setup](../docs/persistence-setup.md) |
+| 08 | Per-Session Image | Probe tools on any MicroVM image | `--image` optional |
+
 ## Run
 
 ```bash
+# 01–05: use environment variables
 uv run python examples/01_hello_sandbox.py
 uv run python examples/02_data_analysis.py
 uv run python examples/03_persistent_workspace.py
 uv run python examples/04_suspend_resume.py
 uv run python examples/05_multi_tenant.py
-uv run python examples/06_software_factory.py
+
+# 06: requires --image with the software-factory image ARN
+uv run python examples/06_software_factory.py \
+    --api-url "$API_URL" --region "$AWS_REGION" \
+    --image arn:aws:lambda:us-east-1:ACCOUNT:microvm-image:sandbox-software-factory-v7
+
+# 07: uses environment variables (needs S3 Files for Options B/C/D)
 uv run python examples/07_document_processing.py
+
+# 08: uses environment variables, optionally pass --image to test a specific image
+uv run python examples/08_per_session_image.py
+uv run python examples/08_per_session_image.py --image arn:aws:lambda:us-east-1:ACCOUNT:microvm-image:sandbox-software-factory-v7
 ```
-
-## Examples
-
-| # | Name | What it shows |
-|---|------|---------------|
-| 01 | Hello Sandbox | Create a session, run a command, see stdout |
-| 02 | Data Analysis | Upload CSV, install pandas, run analysis |
-| 03 | Persistent Workspace | `/mnt/workspace` backed by S3 Files, data survives termination |
-| 04 | Suspend / Resume | Suspend a session (memory + disk snapshot), resume later |
-| 05 | Multi-Tenant | Bearer token auth, tenant isolation |
-| 06 | Software Factory | AI coding agent (opencode) with Node.js, Bedrock, Git — requires `software-factory` image |
-| 07 | Document Processing | Due diligence clean room: four upload patterns (write_file, S3 direct, workspace sync, pre-signed URL), extract, analyze with Bedrock |
 
 ### Example 06: Software Factory
 
 Runs an AI coding agent (opencode) inside a governed sandbox with Node.js 22,
 Bedrock model access through the egress proxy, and Git clone support.
 
-Requires the `software-factory` MicroVM image (see [templates/software-factory/](../templates/software-factory/)).
-Use the `image_ref` parameter if the deployment default is a different image:
+**Requires** the `software-factory` MicroVM image — pass it via `--image`:
 
-```python
-session = client.create_session(
-    image_ref="arn:aws:lambda:us-east-1:123456789012:microvm-image:sandbox-software-factory-v7"
-)
+```bash
+uv run python examples/06_software_factory.py \
+    --api-url "$API_URL" --region "$AWS_REGION" \
+    --image arn:aws:lambda:us-east-1:ACCOUNT:microvm-image:sandbox-software-factory-v7
 ```
+
+Build the image first if you haven't (see [templates/software-factory/](../templates/software-factory/)).
 
 ### Example 07: Document Processing
 
@@ -123,3 +136,17 @@ obj = s3.get_object(Bucket=bucket, Key=f"{prefix}results.json")
 > **Note**: S3 → sandbox sync is near-instant. Sandbox → S3 sync is eventual (~60s).
 > For immediate result retrieval, use `session.read_file()` instead of waiting for
 > S3 sync.
+
+### Example 08: Per-Session Image
+
+Probes a MicroVM image for installed tools (Python, Node.js, git, curl, etc.).
+Useful for verifying custom images.
+
+```bash
+# Default image
+uv run python examples/08_per_session_image.py
+
+# Specific image
+uv run python examples/08_per_session_image.py \
+    --image arn:aws:lambda:us-east-1:ACCOUNT:microvm-image:sandbox-software-factory-v7
+```

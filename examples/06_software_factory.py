@@ -14,7 +14,8 @@ Prerequisites:
 Usage:
     uv run python examples/06_software_factory.py \
         --api-url https://xxx.execute-api.us-east-1.amazonaws.com \
-        --region us-east-1
+        --region us-east-1 \
+        --image arn:aws:lambda:us-east-1:ACCOUNT:microvm-image:sandbox-software-factory-v7
 """
 from __future__ import annotations
 
@@ -30,13 +31,15 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Software Factory example")
     parser.add_argument("--api-url", required=True)
     parser.add_argument("--region", default="us-east-1")
+    parser.add_argument("--image", required=True,
+                        help="Software-factory image ARN (e.g., arn:aws:lambda:us-east-1:ACCOUNT:microvm-image:sandbox-software-factory-v7)")
     args = parser.parse_args()
 
     token = os.environ.get("SANDBOX_TOKEN")
     client = SandboxClient(api_url=args.api_url, region=args.region, token=token)
 
     print("Creating sandbox session...")
-    with client.create_session() as session:
+    with client.create_session(image_ref=args.image) as session:
         session.wait_ready(timeout=120)
         print("Session ready\n")
 
@@ -60,11 +63,12 @@ def main() -> None:
         # 3. Test Bedrock via adapter
         print("\n=== Bedrock via adapter ===")
         bedrock_test = (
-            'import http.client, json, os, re\n'
+            'from urllib.parse import urlparse\n'
+            'import http.client, json, os\n'
             'raw = os.environ.get("http_proxy", "")\n'
             'if not raw: print("NO_PROXY"); exit()\n'
-            'm = re.match(r"http://([^:]+):(\\d+)", raw)\n'
-            'h, p = m.group(1), int(m.group(2))\n'
+            'p_ = urlparse(raw)\n'
+            'h, p = p_.hostname, p_.port or 443\n'
             'b = "bedrock-runtime.us-east-1.amazonaws.com"\n'
             'body = json.dumps({"modelId": "amazon.nova-micro-v1:0",\n'
             '  "messages": [{"role": "user", "content": [{"text": "Say hello in 3 words"}]}],\n'

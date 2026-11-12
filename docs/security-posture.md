@@ -115,8 +115,10 @@ with the following mitigations:
 
 **Why IMDS is not blocked**: The efs-proxy (S3 Files NFS tunnel) shares the network
 namespace with user code and needs IMDS to refresh credentials on suspend/resume. The
-kernel lacks `xt_cgroup` for selective per-process IMDS blocking. Blanket iptables
-blocking breaks resume.
+kernel lacks `xt_cgroup`, `xt_owner`, and `nf_tables` — all are unavailable
+(`modules_disabled=1`, not compiled in). FIB routing rules with `uidrange` are the
+only uid-based network filtering mechanism available. Blanket iptables blocking
+breaks resume.
 
 **Why the credentials are not dangerous**:
 
@@ -167,6 +169,8 @@ blocking breaks resume.
 | Bounding set drops | Runtime | 8 caps irrevocably removed |
 | Per-user workspace AP | Orchestrator | Access point scoped to `/<tenant>/<principal>/` |
 | Proxy env auto-injection | Runtime | `https_proxy` for governed egress |
+| User namespace restriction | Runtime | `max_user_namespaces=0` prevents kernel attack surface expansion |
+| NFS direct-access block | Runtime | `ip rule uidrange` blackholes uid 1000 to mount target |
 | Kernel hardening | Image | `modules_disabled=1`, `kexec_load_disabled=1`, `mem.devmem=0` |
 
 ## Red-Team Audit Results
@@ -203,6 +207,38 @@ capabilities. Led to uid 1000 user isolation (v54).
 v53 bypass is closed (binary overwrite denied, all privesc paths blocked). Found NFS
 access point root POSIX identity (accepted: NNP blocks setuid, no cross-tenant access)
 and unauthenticated terminate DoS (accepted: self-harm only). No escapes achieved.
+
+**Round 6 (Opus 4.8, v12→v15)**: 61-turn red team assessment of the IPv6 per-group
+egress image. 8 findings documented. Key discoveries:
+
+- **F02 (Critical)**: Uid 1000 could directly TCP-connect to the NFS mount target
+  (`10.0.3.75:2049`), bypassing efs-proxy TLS and access-point confinement. Root cause:
+  user code shares the host network namespace. **Fixed in v15**: `ip rule add uidrange
+  1000-1000 to <mount-target>/32 blackhole` applied at boot before CAP_NET_ADMIN is
+  dropped. The Firecracker kernel lacks `xt_owner` (iptables) and `nf_tables` (nftables)
+  — both attempts failed. FIB routing rules with `uidrange` are built into the kernel.
+
+- **F04 (Med-High)**: Unprivileged user namespaces enabled — `unshare(CLONE_NEWUSER)`
+  gave uid 1000 full `CAP_SYS_ADMIN` inside a new namespace, expanding kernel attack
+  surface (overlayfs, nf_tables, io_uring LPEs become reachable). **Fixed in v12**:
+  `/proc/sys/user/max_user_namespaces` set to 0 at boot. Verified: `unshare`, `clone`,
+  `clone3` with `CLONE_NEWUSER` all return `ENOSPC`.
+
+- **F01 (Medium)**: efs-proxy config at `/var/run/efs/` world-readable (0644) — exposes
+  STS credentials, access point ID, mount target topology. Accepted: same creds as
+  IMDS (already documented), private key is 0400.
+
+- **F06 (Medium)**: Allowed proxy destinations (pypi.org, github.com) are usable
+  data exfiltration channels. Accepted: per-group egress policies now provide the
+  mechanism to restrict github.com to specific policy groups.
+
+- **F03, F05, F07, F08**: Low/informational — SUID binaries present but inert (NNP),
+  `/dev/kmsg` world-readable, host socket topology in `/proc/net/unix`, AF_VSOCK
+  reachable but no host listener. All documented in workspace findings.
+
+Verified defended: process isolation (signals, ptrace, /proc/1/fd), filesystem
+confinement, core_pattern lockdown, credential network-unreachability, egress
+allowlist enforcement, IPv6 identity spoofing, registration token forgery.
 
 ### Accepted findings
 

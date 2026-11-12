@@ -116,11 +116,36 @@ TENANT_STATE_INDEX = IndexDefinition(
     projection=ProjectionType.ALL,
 )
 
-INDEXES: tuple[IndexDefinition, ...] = (DEADLINE_INDEX, TENANT_STATE_INDEX)
+REGISTRATION_TOKEN_INDEX = IndexDefinition(
+    name="registration-token-index",
+    partition_key="registrationToken",
+    sort_key=None,
+    projection=ProjectionType.INCLUDE,
+    non_key_attributes=(
+        "tenantId",
+        "policyGroup",
+    ),
+)
+
+IPV6_ADDRESS_INDEX = IndexDefinition(
+    name="ipv6-address-index",
+    partition_key="ipv6Address",
+    sort_key=None,
+    projection=ProjectionType.INCLUDE,
+    non_key_attributes=(
+        "tenantId",
+        "policyGroup",
+    ),
+)
+
+INDEXES: tuple[IndexDefinition, ...] = (DEADLINE_INDEX, TENANT_STATE_INDEX, REGISTRATION_TOKEN_INDEX, IPV6_ADDRESS_INDEX)
+
 
 #: Every attribute that appears in a key schema, table or index, with its type. DynamoDB requires
 #: exactly this set to be declared and no more.
 ATTRIBUTE_DEFINITIONS: dict[str, AttributeType] = {
+    "registrationToken": AttributeType.STRING,
+    "ipv6Address": AttributeType.STRING,
     PARTITION_KEY_ATTRIBUTE: AttributeType.STRING,
     SORT_KEY_ATTRIBUTE: AttributeType.STRING,
     DEADLINE_INDEX.partition_key: AttributeType.NUMBER,

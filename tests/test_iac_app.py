@@ -32,7 +32,7 @@ EXPECTED_EDGES: Final[dict[str, set[str]]] = {
     "NetworkStack": set(),
     "StateStack": set(),
     "ImageStack": set(),
-    "EgressStack": {"NetworkStack"},
+    "EgressStack": {"NetworkStack", "StateStack"},
     "ControlPlaneStack": {"StateStack", "ImageStack", "EgressStack", "NetworkStack"},
     "AgentToolStack": {"ControlPlaneStack", "StateStack"},
     "DemoStack": {"ControlPlaneStack", "AgentToolStack"},

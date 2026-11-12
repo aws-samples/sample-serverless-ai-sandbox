@@ -59,11 +59,11 @@ def _artifact_bucket_properties(template: Template) -> dict[str, Any]:
     return dict(_sole(template, BUCKET_TYPE, exclude_prefix="AccessLogs")["Properties"])
 
 
-def _key_schema(partition_key: str, sort_key: str) -> list[dict[str, str]]:
-    return [
-        {"AttributeName": partition_key, "KeyType": "HASH"},
-        {"AttributeName": sort_key, "KeyType": "RANGE"},
-    ]
+def _key_schema(partition_key: str, sort_key: str | None) -> list[dict[str, str]]:
+    schema = [{"AttributeName": partition_key, "KeyType": "HASH"}]
+    if sort_key is not None:
+        schema.append({"AttributeName": sort_key, "KeyType": "RANGE"})
+    return schema
 
 
 def test_the_table_key_schema_is_the_declared_key_schema(template: Template) -> None:

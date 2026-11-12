@@ -27,7 +27,7 @@ logger.setLevel(logging.INFO)
 #: Environment variable carrying a JSON token-to-tenant mapping.
 _TOKEN_MAP_VAR: Final = "TENANT_TOKEN_MAP"
 
-def _load_token_map() -> dict[str, str]:
+def _load_token_map() -> dict[str, str | dict[str, str]]:
     """Load the token-to-tenant mapping from the environment.
 
     PCSR Finding 2: absent or invalid TENANT_TOKEN_MAP denies all requests.
@@ -74,13 +74,30 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             logger.info("Bearer token not recognized")
             return {"isAuthorized": False}
 
-        logger.info("Authorized tenant: %s", tenant_id)
+        # Resolve policyGroup and principalId from dict values
+        policy_group = ""
+        principal_id = ""
+        if isinstance(tenant_id, dict):
+            policy_group = tenant_id.get("policyGroup", "")
+            principal_id = tenant_id.get("principalId", "")
+            tenant_id = tenant_id.get("tenantId", "")
+            if not tenant_id:
+                logger.info("Token maps to dict without tenantId")
+                return {"isAuthorized": False}
+
+        if not principal_id:
+            principal_id = f"tenant:{tenant_id}"
+
+        logger.info("Authorized tenant: %s user: %s (policyGroup: %s)", tenant_id, principal_id, policy_group or "default")
+        context: dict[str, str] = {
+            "tenantId": tenant_id,
+            "principalId": principal_id,
+        }
+        if policy_group:
+            context["policyGroup"] = policy_group
         return {
             "isAuthorized": True,
-            "context": {
-                "tenantId": tenant_id,
-                "principalId": f"tenant:{tenant_id}",
-            },
+            "context": context,
         }
 
     # PCSR Finding 1: no valid credential → reject.

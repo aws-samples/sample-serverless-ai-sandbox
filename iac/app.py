@@ -123,7 +123,7 @@ def build_app(**kwargs: Any) -> cdk.App:
     network = NetworkStack(app, "NetworkStack", env=env)
     state = StateStack(app, "StateStack", env=env)
     image = ImageStack(app, "ImageStack", env=env)
-    egress = EgressStack(app, "EgressStack", network=network, env=env)
+    egress = EgressStack(app, "EgressStack", network=network, sessions_table_name=state.table.table_name, env=env)
     control_plane = ControlPlaneStack(
         app,
         "ControlPlaneStack",

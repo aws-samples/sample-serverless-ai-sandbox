@@ -380,6 +380,7 @@ class ControlPlaneStack(cdk.Stack):
                 "EGRESS_ENDPOINT": self.egress.proxy_endpoint,
                 "POLICY_STORE_ID": self.egress.policy_application.application_id,
                 "CONNECTOR_REF": self.network.attachment_ref,
+                "EGRESS_POLICY": "per-tenant",
                 "SESSION_DATA_ACCESS_ROLE_ARN": self.session_data_access_role.role_arn,
                 "SANDBOX_EXECUTION_ROLE_ARN": self.sandbox_execution_role_template.role_arn,
                 "STATE_MACHINE_ARN": "",  # Resolved after state machine creation.
@@ -440,6 +441,7 @@ class ControlPlaneStack(cdk.Stack):
                 "IMAGE_REF": self.image.image_version,
                 "EGRESS_ENDPOINT": self.egress.proxy_endpoint,
                 "CONNECTOR_REF": self.network.attachment_ref,
+                "EGRESS_POLICY": "per-tenant",
                 "VCPU_MILLIS": str(ORCHESTRATOR_VCPU_MILLIS),
                 "POLL_INTERVAL_SECONDS": str(ORCHESTRATOR_POLL_INTERVAL_SECONDS),
                 "READINESS_ATTEMPTS": str(ORCHESTRATOR_READINESS_ATTEMPTS),
@@ -602,7 +604,7 @@ class ControlPlaneStack(cdk.Stack):
                 # See README.md "Multi-tenancy" section for Cognito migration guide.
                 "TENANT_TOKEN_MAP": json.dumps(
                     {
-                        "demo-token-tenant-a": "tenant-a",
+                        "demo-token-tenant-a": {"tenantId": "tenant-a", "policyGroup": "developer"},
                         "demo-token-tenant-b": "tenant-b",
                     }
                 ),
@@ -708,6 +710,13 @@ class ControlPlaneStack(cdk.Stack):
             )
         )
 
+        # Per-group egress: API handler reads IAM tags to resolve policyGroup
+        self.api_handler.add_to_role_policy(
+            iam.PolicyStatement(
+                actions=["iam:ListUserTags", "iam:ListRoleTags"],
+                resources=["*"],
+            )
+        )
 
         return machine
 

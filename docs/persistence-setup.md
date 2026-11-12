@@ -60,6 +60,42 @@ mountpoint -q /mnt/workspace && echo Mounted
 
 If mount fails, check: cat /tmp/_debug_mount.json
 
+## File Ownership (posixUser)
+
+The S3 Files access point is configured with `posixUser: {uid: 0, gid: 0}` (root).
+This means all files created via NFS are owned by `root:root`, regardless of who
+writes them inside the sandbox.
+
+The sandbox process runs as **uid 1000** (non-root). The practical effect:
+
+| Operation | Works? | Why |
+|-----------|--------|-----|
+| Create new file | ✅ | Directory has sticky bit (`drwxrwxrwt`), allows creation |
+| Read file | ✅ | Files are world-readable (`644`) |
+| Overwrite own file | ❌ | File is owned by root, uid 1000 has no write permission |
+| Delete own file | ❌ | File is owned by root, uid 1000 cannot remove it |
+
+**This is intentional for append-only workloads**: agents can write findings, logs,
+and artifacts to `/mnt/workspace/` but cannot tamper with or delete files they've
+already written. Each output should be a new file (e.g., `finding_001.txt`,
+`finding_002.txt`). Use `/tmp` for scratch work that needs modification.
+
+**To allow full read-write-delete access**, change the `posixUser` to match the
+sandbox user in both:
+
+1. `scripts/setup-s3files.py` — the default access point:
+   ```python
+   posixUser={"uid": 1000, "gid": 1000}
+   ```
+
+2. `control_plane/orchestrator/tasks.py` — per-session access points:
+   ```python
+   posixUser={"uid": 1000, "gid": 1000}
+   ```
+
+Existing access points are immutable — this only affects newly created ones.
+Redeploy and create new sessions to take effect.
+
 ## Troubleshooting
 
 | Error | Cause | Fix |

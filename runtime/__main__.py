@@ -35,6 +35,68 @@ _PORT = 8080
 _SANDBOX_ROOT = "/tmp"  # nosec B108
 
 
+def _register_ipv6_with_proxy(payload: bytes) -> None:
+    """Register this MicroVM's IPv6 /128 with the egress proxy (per-tenant mode).
+
+    Sends a CONNECT to ``_register.internal`` via curl -6, forcing an IPv6
+    connection through the NLB. The proxy reads the /128 from the PP2 header
+    and maps it to the tenant via X-Session-Id / X-Tenant-Id headers.
+
+    Self-gating — no-op when ANY of these are true:
+
+    - sessionId/tenantId absent from payload (shared-mode or IPv4-only deploy)
+    - No global IPv6 address on the MicroVM (IPv4-only connector)
+    - http_proxy not set (no egress proxy configured)
+    """
+    import json as _json
+    import os
+    import subprocess  # nosec B404
+
+    try:
+        envelope = _json.loads(payload) if isinstance(payload, bytes) else payload
+        rhp = envelope.get("runHookPayload", envelope)
+        if isinstance(rhp, str):
+            rhp = _json.loads(rhp)
+        if not isinstance(rhp, dict):
+            return
+    except Exception:
+        return
+
+    registration_token = rhp.get("registrationToken", "")
+
+    if not registration_token:
+        return  # Shared-mode or IPv4 deploy — nothing to register
+
+    proxy_url = os.environ.get("http_proxy", "")
+    if not proxy_url:
+        return
+
+    # Only register if the MicroVM has a global IPv6 (DualStack connector)
+    try:
+        result = subprocess.run(  # nosec B603 B607
+            ["ip", "-6", "addr", "show", "scope", "global"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if not result.stdout.strip():
+            return  # IPv4-only connector
+    except Exception:
+        return
+
+    try:
+        subprocess.run(  # nosec B603 B607
+            [
+                "curl", "-6", "-s", "-o", "/dev/null",
+                "-x", proxy_url,
+                "--proxy-header", f"X-Registration-Token: {registration_token}",
+                "--max-time", "2",
+                "https://_register.internal/",
+            ],
+            capture_output=True, text=True, timeout=4,
+        )
+    except Exception:
+        pass  # Best-effort
+
+
 def _inject_proxy_env(payload: bytes) -> None:
     """Extract ``egressEndpoint`` from the run-hook envelope and set proxy env vars.
 
@@ -70,7 +132,12 @@ def _inject_proxy_env(payload: bytes) -> None:
     if not endpoint or not isinstance(endpoint, str):
         return
 
-    proxy_url = f"http://{endpoint}:443"
+    # Prefer IPv6 proxy address for per-VM identification via PP2
+    proxy_ipv6 = inner.get("proxyIPv6") if isinstance(inner, dict) else None
+    if proxy_ipv6 and isinstance(proxy_ipv6, str):
+        proxy_url = f"http://[{proxy_ipv6}]:443"
+    else:
+        proxy_url = f"http://{endpoint}:443"
     os.environ["https_proxy"] = proxy_url
     os.environ["http_proxy"] = proxy_url
     os.environ["HTTPS_PROXY"] = proxy_url
@@ -134,6 +201,37 @@ def _block_imds() -> None:
                 pass  # nosec B110
         except Exception:
             pass  # nosec B110
+
+
+def _block_direct_nfs(mount_target_ip: str) -> None:
+    """Block uid 1000 from directly reaching the NFS mount target (F02 mitigation).
+
+    The S3 Files mount target is reachable from inside the MicroVM because user code
+    shares the host network namespace. Without this rule, uid 1000 can craft raw NFSv4
+    COMPOUND operations to bypass the efs-proxy's TLS and access-point confinement.
+
+    Uses ``ip rule uidrange`` (FIB routing rules) to blackhole traffic from uid 1000
+    to the mount target. This works in the Firecracker kernel because FIB rules are
+    built in — unlike xt_owner (iptables) and nf_tables (nftables), which are both
+    unavailable (modules_disabled=1, not compiled in).
+
+    This rule blocks only uid 1000 (sandbox user); efs-proxy runs as root (uid 0) and
+    is unaffected. CAP_NET_ADMIN is dropped after this by _drop_dangerous_caps(), so
+    user code cannot remove the routing rule.
+    """
+    import subprocess  # nosec B404
+    try:
+        r = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit # nosec B603 B607
+            ["ip", "rule", "add", "uidrange", "1000-1000", "to", f"{mount_target_ip}/32", "blackhole"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode != 0:
+            print(json.dumps({"msg": "nfs_direct_block_failed",
+                              "err": (r.stderr or r.stdout or "").strip()[:100]}), flush=True)
+            return
+        print(json.dumps({"msg": "nfs_direct_blocked", "ip": mount_target_ip, "method": "ip-rule-uidrange"}), flush=True)
+    except Exception as e:
+        print(json.dumps({"msg": "nfs_direct_block_failed", "err": str(e)[:100]}), flush=True)
 
 
 def _drop_dangerous_caps() -> None:
@@ -304,7 +402,29 @@ _RUNTIME_INJECTED_KEYS = frozenset({
     "s3filesAccessPointId",
     "s3filesMountTargetIp",
     "s3filesRegion",
+    "registrationToken",
+    "proxyIPv6",
 })
+
+
+def _restrict_user_namespaces() -> None:
+    """Block unprivileged user namespace creation (F04 mitigation).
+
+    User namespaces allow uid 1000 to gain CAP_SYS_ADMIN inside a new namespace,
+    which massively expands the kernel attack surface (overlayfs, nf_tables,
+    io_uring LPE CVEs become reachable). Setting max_user_namespaces=0 prevents
+    unprivileged unshare(CLONE_NEWUSER).
+
+    This runs as root during the /run hook. efs-proxy and PID 1 do not create
+    user namespaces, so this has no impact on sandbox infrastructure.
+    """
+    try:
+        with open("/proc/sys/user/max_user_namespaces", "w") as f:
+            f.write("0")
+        print(json.dumps({"msg": "user_namespaces_restricted"}), flush=True)
+    except Exception as e:
+        # Kernel may not support this sysctl — log but don't fail
+        print(json.dumps({"msg": "user_namespaces_restrict_failed", "err": str(e)[:100]}), flush=True)
 
 
 def _strip_runtime_keys(payload: bytes) -> bytes:
@@ -456,6 +576,12 @@ def _mount_s3files(payload: bytes) -> None:
                     except Exception:  # nosec B110
                         pass
                     print(json.dumps({"msg": "s3files_mounted", "path": mount_path, "fs": fs_id}), flush=True)
+                    # F02 mitigation: block uid 1000 from directly reaching the NFS
+                    # mount target on port 2049. efs-proxy (root) still reaches it.
+                    # CAP_NET_ADMIN is dropped later by _drop_dangerous_caps(), so
+                    # user code cannot remove this rule.
+                    if mt_ip:
+                        _block_direct_nfs(mt_ip)
                     return
             except Exception:  # nosec B110
                 pass
@@ -600,7 +726,14 @@ class _RuntimeActions:
         except Exception:  # nosec B110
             pass
 
+        import time as _t; import sys as _s
+        _t0 = _t.monotonic()
+        def _tlog(m): print(f"[run-hook] {m}", file=_s.stderr, flush=True)
+        _tlog("START apply_configuration")
         _inject_proxy_env(payload)
+        _tlog(f"+{(_t.monotonic()-_t0)*1000:.0f}ms _inject_proxy_env")
+        _register_ipv6_with_proxy(payload)
+        _tlog(f"+{(_t.monotonic()-_t0)*1000:.0f}ms _register_ipv6_with_proxy")
         _mount_s3files(payload)
         # IMDS blocking removed: iptables approach breaks efs-proxy credential
         # refresh on resume (confirmed: xt_cgroup not available in kernel to
@@ -611,6 +744,7 @@ class _RuntimeActions:
         # - aws:SourceVpce condition (when S3 Gateway Endpoint is configured)
         _drop_dangerous_caps()
         _lock_core_pattern()
+        _restrict_user_namespaces()
         import runtime.confine; runtime.confine.init()
         # Ensure /tmp and /mnt/workspace are writable by sandbox user (uid 1000).
         # For NFS mounts (S3 Files), chown may be rejected by root_squash —

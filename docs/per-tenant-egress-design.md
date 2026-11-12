@@ -1,104 +1,310 @@
 <!-- kiro-classification: public -->
 
-# Per-Tenant Egress Policies
+# Per-Tenant / Per-Group Egress Policies
 
-> **Status**: Per-tenant egress differentiation is not feasible with the current
-> proxy-based architecture. The connector-per-tenant approach was rejected (ENI
-> sharing makes source IP unreliable). The IPv6 per-VM approach below is documented
-> for reference but requires AWS Network Firewall and is not on the active roadmap.
+> **Status**: Implemented and tested at scale (1,000 sessions, 5 tenants, 200 users).
+> Works in both single-tenant and multi-tenant deployment profiles.
 
-## Current Approach: One Policy for All
+## Overview
 
-Today the egress proxy applies a single policy to all sandboxes regardless of tenant.
-The operator defines which destinations are allowed (stored in DynamoDB, 30s cache TTL),
-and every MicroVM gets the same rules.
+The egress proxy can apply **different egress rules per session** based on the user's
+role, tenant, or policy group. A developer session might reach GitHub, PyPI, and npm
+while an analyst session only reaches PyPI.
 
-**This is correct for most deployments.** The operator controls the network boundary,
-not the tenants. Multi-tenancy is enforced at the data layer (DynamoDB partitions,
-IAM conditions) and at the API layer (Lambda authorizer). Egress policy is an
-operator concern, not a per-tenant one.
+Each MicroVM is identified by its unique IPv6 /128 address. The proxy sees this address
+on every request via Proxy Protocol v2 and applies the matching policy — no Network
+Firewall, no per-tenant connectors, zero additional infrastructure cost.
 
-**When this isn't enough:** a platform operator hosting mutually untrusted tenants
-may need Tenant A to reach GitHub while Tenant B cannot. The approach below addresses
-that.
+## How It Works
 
-### Why not connector-per-tenant?
+```
+Session Creation (API Handler):
+  User authenticates → API reads policy group from:
+    • IAM tag SandboxEgressPolicy (single-tenant, SigV4)
+    • Lambda authorizer context policyGroup (multi-tenant, bearer token)
+    • Cognito JWT claim custom:egress_policy (multi-tenant, JWT)
+  → Writes policyGroup to session record in DynamoDB
 
-We evaluated a design where each tenant gets a dedicated Lambda network connector,
-and the proxy identifies the tenant by the connector ENI's source IPv4. This was
-rejected because:
+Provisioning (Orchestrator):
+  → Generates opaque registrationToken (UUID4)
+  → Resolves NLB IPv6 address (AAAA record)
+  → Writes registrationToken to session record
+  → Provisions MicroVM on DualStack connector → VM gets unique /128
 
-- **ENI sharing across connectors**: A principal engineer from the MicroVM service
-  team confirmed that MicroVMs on the same connector share the connector ENI's IPv4.
-  Furthermore, connectors in the same subnet and security group may reuse each other's
-  ENIs, making source IP an unreliable tenant identifier.
-- **1,000 connector limit** per account (non-adjustable).
-- **10-minute provisioning** per connector (async), which complicates dynamic
-  tenant onboarding.
+Registration (MicroVM boot, before user code runs):
+  → Sets http_proxy=http://[<proxyIPv6>]:443
+  → Sends CONNECT with X-Registration-Token header through the proxy
+  → NLB forwards to proxy with Proxy Protocol v2 (carries /128)
+  → Proxy reads token → queries DDB → maps /128 → policyGroup
 
----
+Every subsequent request (pip install, curl, git, Bedrock, etc.):
+  → All traffic routes through IPv6 proxy
+  → NLB → PP2 → Proxy looks up /128 → policyGroup → applies policy
+  → Allowed → tunnel upstream (IPv4 NAT)
+  → Denied → 403 Forbidden
+```
 
-## IPv6 per-VM Identification (Advanced Option)
+### Why IPv6?
 
-On a DualStack network connector, the Lambda MicroVM service assigns each VM a
-unique IPv6 /128 address. This is the most precise identification — per-VM, not
-just per-tenant — and the identity is unforgeable at the hypervisor level.
+On a DualStack connector, each MicroVM gets a unique /128 from the VPC subnet CIDR.
+This address is:
 
-### How it works
+- **Unique per VM** — no sharing, even on the same connector
+- **Unforgeable** — assigned by the hypervisor. A root guest binding a sibling's
+  address gets silently dropped by the network layer
+- **Visible via PP2** — the NLB includes the source /128 in the Proxy Protocol v2
+  header on every connection, so the proxy knows which VM is making each request
+- **Zero cost** — no additional infrastructure (no Network Firewall, no extra NAT)
 
-Each MicroVM gets a /128 from the connector's delegated /80 prefix. This address:
+## Single-Tenant Setup (SigV4)
 
-- Is **unique per MicroVM** — no sharing, even on the same connector
-- Is **unforgeable** — assigned by the hypervisor. A root guest with ALL capabilities
-  can bind a sibling's address locally, but egress under it silently drops. Tested
-  and verified on real MicroVMs.
-- Appears in **VPC flow logs** (`pkt-srcaddr`) and Network Firewall logs
-- Costs **1 NAU unit** for the entire /80, regardless of VM count
+### 1. Tag IAM users or roles
 
-### Policy enforcement
+Add the `SandboxEgressPolicy` tag to IAM users or roles that create sessions:
 
-Enforcement uses **AWS Network Firewall** with per-source /128 Suricata rules —
-protocol-agnostic (HTTP, SSH, arbitrary TCP). Cost: ~$320/month for the firewall
-endpoint plus ~$32/month for the NAT Gateway (needed for IPv4-only destinations
-via DNS64/NAT64).
+```bash
+# Tag a user
+aws iam tag-user --user-name alice \
+  --tags Key=SandboxEgressPolicy,Value=developer
 
-### Limitations
+# Tag a role
+aws iam tag-role --role-name DataAnalystRole \
+  --tags Key=SandboxEgressPolicy,Value=analyst
 
-- **29% of common agent destinations are IPv4-only (based on internal testing of top-100 agent destinations, 2026-09)** (GitHub among them). DNS64/NAT64
-  can close this gap while preserving attribution, at the cost of a NAT Gateway
-  (~$32/month + per-GB processing).
-- **Network Firewall rule changes take 60–80 seconds** to propagate (vs seconds for
-  the proxy's DDB-backed policy). Not suitable for dynamic policy changes.
-- **Network Firewall cannot inject credentials** — the Fargate proxy is still needed
-  for Bedrock SigV4 re-signing and Tier 2 token injection regardless.
-- **Operational traps**: `ACTION_ORDER` in Network Firewall silently defeats narrow
-  drop rules. Discovered during testing — requires careful rule ordering.
+# No tag = "default" policy group
+```
 
-### When to use this
+### 2. How resolution works
 
-For operators who need per-VM (not just per-tenant) policy differentiation, or who
-need protocol-agnostic enforcement at the network layer for compliance reasons. The
-cost (~$350/month) and complexity are justified when the uniform policy approach
-doesn't provide sufficient granularity.
+The API handler calls `iam:ListUserTags` or `iam:ListRoleTags` at session creation
+(~50ms overhead). It handles user ARNs, role ARNs, and assumed-role ARNs.
 
----
+| Caller ARN pattern | Tag source |
+|--------------------|------------|
+| `arn:aws:iam::ACCOUNT:user/alice` | `iam:ListUserTags` on the user |
+| `arn:aws:iam::ACCOUNT:role/MyRole` | `iam:ListRoleTags` on the role |
+| `arn:aws:sts::ACCOUNT:assumed-role/MyRole/session` | `iam:ListRoleTags` on the role |
+| Tag missing or IAM call fails | Falls back to `"default"` |
 
-## Comparison
+### 3. Test it
 
-| | One Policy (current) | IPv6 + Network Firewall |
+```bash
+# Create a session as the tagged user — check proxy logs for policy group
+aws sts get-caller-identity  # confirm you're the tagged user
+curl --aws-sigv4 "aws:amz:us-east-1:execute-api" \
+  --user "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" \
+  -X POST https://xxx.execute-api.us-east-1.amazonaws.com/sessions \
+  -d '{"maxDurationSeconds": 3600}'
+```
+
+## Multi-Tenant Setup
+
+### Lambda Authorizer (Bearer Tokens)
+
+The Lambda authorizer maps tokens to tenant + policy group. Update `TENANT_TOKEN_MAP`:
+
+```json
+{
+  "token-developer": {"tenantId": "acme-corp", "policyGroup": "developer"},
+  "token-analyst":   {"tenantId": "acme-corp", "policyGroup": "analyst"},
+  "token-restricted": {"tenantId": "acme-corp", "policyGroup": "restricted"},
+  "token-tenant-b":  "tenant-b"
+}
+```
+
+Tokens with a string value (e.g., `"tenant-b"`) get no explicit policyGroup — they
+use the tenant default or global default.
+
+Tokens with an object value get `tenantId` and `policyGroup` from the object. The
+authorizer returns `policyGroup` in the API Gateway authorizer context.
+
+### Cognito JWT
+
+Add `custom:egress_policy` to the user pool schema and set it per user:
+
+```bash
+# Create user pool with egress_policy attribute
+aws cognito-idp create-user-pool \
+  --pool-name sandbox-users \
+  --schema \
+    Name=tenantId,AttributeDataType=String,Mutable=true \
+    Name=egress_policy,AttributeDataType=String,Mutable=true
+
+# Create a developer user
+aws cognito-idp admin-create-user \
+  --user-pool-id <pool-id> \
+  --username dev@example.com \
+  --user-attributes \
+    Name=custom:tenantId,Value=acme-corp \
+    Name=custom:egress_policy,Value=developer
+
+# Create an analyst user (restricted egress)
+aws cognito-idp admin-create-user \
+  --user-pool-id <pool-id> \
+  --username analyst@example.com \
+  --user-attributes \
+    Name=custom:tenantId,Value=acme-corp \
+    Name=custom:egress_policy,Value=analyst
+```
+
+The API handler reads `custom:egress_policy` from JWT claims automatically.
+See [Cognito Integration Guide](cognito-auth.md) for the full migration.
+
+## Policy Configuration
+
+Policies are stored in the **DynamoDB egress config table** (`EgressConfig`).
+Each row has a `pk` key and a `policy` attribute containing the policy JSON.
+
+### Policy format
+
+```json
+{
+  "policyVersion": 1,
+  "defaultAction": "deny",
+  "bedrock": {
+    "tier": 1,
+    "hosts": [
+      "bedrock-runtime.us-east-1.amazonaws.com",
+      "bedrock-runtime.us-west-2.amazonaws.com"
+    ]
+  },
+  "packages": {
+    "tier": 3,
+    "hosts": ["pypi.org", "files.pythonhosted.org", "registry.npmjs.org"]
+  },
+  "github": {
+    "tier": 3,
+    "hosts": ["github.com", "api.github.com"]
+  }
+}
+```
+
+- **Tier 1** (SigV4 re-signing): For AWS services — the proxy strips sandbox credentials
+  and re-signs with its own IAM role
+- **Tier 3** (CONNECT tunnel): For external hosts — the proxy creates a TCP tunnel,
+  your TLS session goes end-to-end
+
+### Row types
+
+| `pk` pattern | Purpose | Example |
 |---|---|---|
-| **Granularity** | All sandboxes | Per VM |
-| **Identity** | None needed | MicroVM IPv6 /128 |
-| **Forgeable?** | N/A | No (hypervisor-level) |
-| **New infra** | None | Network Firewall + NAT Gateway |
-| **Monthly cost** | $0 | ~$350 |
-| **Tenant limit** | Unlimited | Unlimited |
-| **Policy change speed** | 30s (DDB cache) | 60–80s (NFW propagation) |
-| **Protocol coverage** | HTTP/CONNECT | All TCP including SSH |
-| **Credential injection** | Yes (proxy) | No (proxy still needed) |
+| `EGRESS_POLICY` | Global default — applies when no group or tenant policy matches | Bedrock + system packages |
+| `EGRESS_POLICY#GROUP#<name>` | Group-specific policy | `EGRESS_POLICY#GROUP#developer` |
+| `EGRESS_POLICY#TENANT#<name>` | Tenant default — applies to all sessions from a tenant without a matching group | `EGRESS_POLICY#TENANT#acme-corp` |
 
-## Decision
+### Fallback chain
 
-Ship with one policy for all. Document IPv6/NFW as the advanced option for operators
-needing per-VM network-layer enforcement. The proxy-based approach is the right
-trade-off for cost, simplicity, and the credential injection requirement.
+For every request, the proxy resolves the policy in this order:
+
+```
+1. EGRESS_POLICY#GROUP#<policyGroup>   ← group-specific (if exists)
+2. EGRESS_POLICY#TENANT#<tenantId>     ← tenant default (if exists)
+3. EGRESS_POLICY                        ← global default (always exists)
+```
+
+**Examples:**
+- Developer with group policy → uses `EGRESS_POLICY#GROUP#developer`
+- User with no group, tenant has a default → uses `EGRESS_POLICY#TENANT#acme-corp`
+- User with no group, tenant has no default → uses `EGRESS_POLICY` (global)
+- User with a group that has no matching row → falls back to tenant, then global
+
+### Adding policies
+
+```bash
+# Find your egress config table name
+TABLE=$(aws cloudformation describe-stacks --stack-name EgressStack \
+  --query 'Stacks[0].Outputs[?contains(OutputKey,`EgressConfig`)].OutputValue' \
+  --output text)
+
+# Developer group: Bedrock + PyPI + npm + GitHub
+aws dynamodb put-item --table-name "$TABLE" --item '{
+  "pk": {"S": "EGRESS_POLICY#GROUP#developer"},
+  "policy": {"S": "{\"policyVersion\":1,\"defaultAction\":\"deny\",\"bedrock\":{\"tier\":1,\"hosts\":[\"bedrock-runtime.us-east-1.amazonaws.com\",\"bedrock-runtime.us-west-2.amazonaws.com\",\"bedrock-mantle.us-east-1.api.aws\"]},\"packages\":{\"tier\":3,\"hosts\":[\"pypi.org\",\"files.pythonhosted.org\",\"registry.npmjs.org\",\"registry.yarnpkg.com\"]},\"github\":{\"tier\":3,\"hosts\":[\"github.com\",\"api.github.com\"]},\"system\":{\"tier\":3,\"hosts\":[\"cdn.amazonlinux.com\"]}}"}
+}'
+
+# Analyst group: Bedrock + PyPI only (no GitHub, no npm)
+aws dynamodb put-item --table-name "$TABLE" --item '{
+  "pk": {"S": "EGRESS_POLICY#GROUP#analyst"},
+  "policy": {"S": "{\"policyVersion\":1,\"defaultAction\":\"deny\",\"bedrock\":{\"tier\":1,\"hosts\":[\"bedrock-runtime.us-east-1.amazonaws.com\"]},\"packages\":{\"tier\":3,\"hosts\":[\"pypi.org\",\"files.pythonhosted.org\"]}}"}
+}'
+
+# Restricted group: Bedrock only (no external packages)
+aws dynamodb put-item --table-name "$TABLE" --item '{
+  "pk": {"S": "EGRESS_POLICY#GROUP#restricted"},
+  "policy": {"S": "{\"policyVersion\":1,\"defaultAction\":\"deny\",\"bedrock\":{\"tier\":1,\"hosts\":[\"bedrock-runtime.us-east-1.amazonaws.com\"]}}"}
+}'
+
+# Tenant default for acme-corp: Bedrock + PyPI
+aws dynamodb put-item --table-name "$TABLE" --item '{
+  "pk": {"S": "EGRESS_POLICY#TENANT#acme-corp"},
+  "policy": {"S": "{\"policyVersion\":1,\"defaultAction\":\"deny\",\"bedrock\":{\"tier\":1,\"hosts\":[\"bedrock-runtime.us-east-1.amazonaws.com\"]},\"packages\":{\"tier\":3,\"hosts\":[\"pypi.org\",\"files.pythonhosted.org\"]}}"}
+}'
+```
+
+### Policy hot-swap
+
+Update a DDB row and the proxy picks it up within **30 seconds** (cache TTL).
+No redeployment needed. Sessions in progress get the updated policy on their
+next request after the cache expires.
+
+## Bedrock Model Permissions
+
+The proxy's IAM role (ProxyTaskRole) re-signs Bedrock requests. The CDK grants:
+
+```
+bedrock:InvokeModel, bedrock:Converse, bedrock:ConverseStream
+  on arn:aws:bedrock:us-east-1::foundation-model/*
+```
+
+**Cross-region inference profiles** (e.g., `us.moonshotai.kimi-k3.1`,
+`us.anthropic.claude-fable-5-2`) resolve to foundation models in other regions.
+If you use cross-region models, add an inline policy to the proxy task role:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["bedrock:InvokeModel", "bedrock:Converse", "bedrock:ConverseStream"],
+    "Resource": [
+      "arn:aws:bedrock:*::foundation-model/*",
+      "arn:aws:bedrock:*:ACCOUNT_ID:inference-profile/*"
+    ]
+  }]
+}
+```
+
+**Data retention**: Some models (Claude Fable 5.x) require `aws_review` data
+retention mode. Set it at the account level:
+
+```python
+import boto3
+boto3.client('bedrock').put_account_data_retention(mode='aws_review')
+```
+
+## Security Properties
+
+- **IPv6 is unforgeable**: The /128 is assigned by the hypervisor. A guest cannot
+  impersonate another VM's address — binding attempts get `EADDRNOTAVAIL` or
+  silently drop
+- **Registration token is opaque**: The MicroVM never sees the tenantId, sessionId,
+  or policyGroup. Only a UUID4 that the proxy resolves server-side
+- **Token replay overwrites**: Re-registering with the same token from a different
+  /128 overwrites the mapping. This is the expected behavior for the same session
+  (e.g., after resume)
+- **Header injection blocked**: The proxy uses the PP2 source /128 exclusively.
+  Any `X-Policy-Group` or similar header from the client is ignored
+- **Unknown /128**: An unregistered IPv6 address gets the global default policy
+  (deny-by-default)
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `control_plane/api/creation.py` | `_resolve_policy_group()` — reads IAM tag or authorizer context |
+| `control_plane/api/request.py` | `extract_policy_group()` — reads from Lambda/JWT/flat context |
+| `control_plane/authorizer/handler.py` | Lambda authorizer — maps tokens to tenantId + policyGroup |
+| `egress/server.py` | Proxy — PP2 parser, registration handler, per-group interceptor |
+| `runtime/__main__.py` | MicroVM — `_register_ipv6_with_proxy()`, IPv6 proxy env setup |
+| `iac/egress_stack.py` | CDK — NLB dualstack, IPv6 target group, PP2, proxy permissions |
+| `iac/network_stack.py` | CDK — DualStack connector, IPv6 CIDRs on subnets |

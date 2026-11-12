@@ -84,14 +84,14 @@ The sandbox has an egress proxy that re-signs Bedrock requests with its own SigV
 The proxy endpoint is available in the `http_proxy` environment variable.
 
 ```python
-import http.client, json, os, re
+import http.client, json, os
 
-# Extract proxy from environment
-raw = os.environ.get('http_proxy', '')
-m = re.match(r'http://([^:]+):(\d+)', raw)
-if not m:
-    raise RuntimeError(f'http_proxy not set: {raw}')
-proxy_host, proxy_port = m.group(1), int(m.group(2))
+# Extract proxy from environment (supports both IPv4 and IPv6 proxy URLs)
+from urllib.parse import urlparse
+proxy_url = urlparse(os.environ.get('http_proxy', ''))
+if not proxy_url.hostname:
+    raise RuntimeError('http_proxy not set')
+proxy_host, proxy_port = proxy_url.hostname, proxy_url.port or 443
 
 # Bedrock endpoint
 region = 'us-east-1'
@@ -132,13 +132,13 @@ Save this as a module for repeated use:
 
 ```python
 # /tmp/bedrock_helper.py
-import http.client, json, os, re
+import http.client, json, os
+from urllib.parse import urlparse
 
 def call_bedrock(prompt, model='amazon.nova-micro-v1:0', max_tokens=512, temperature=0.7):
-    raw = os.environ.get('http_proxy', '')
-    m = re.match(r'http://([^:]+):(\d+)', raw)
-    if not m: raise RuntimeError('No proxy')
-    host, port = m.group(1), int(m.group(2))
+    proxy = urlparse(os.environ.get('http_proxy', ''))
+    if not proxy.hostname: raise RuntimeError('No proxy')
+    host, port = proxy.hostname, proxy.port or 443
     bedrock = f'bedrock-runtime.us-east-1.amazonaws.com'
     body = json.dumps({
         'modelId': model,

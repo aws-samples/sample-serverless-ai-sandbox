@@ -155,6 +155,20 @@ class _DynamoSessionStore:
 
     # -- OrchestrationRowStore ----------------------------------------------------
 
+    def update_registration_token(
+        self, *, partition_key: str, sort_key: str, token: str, policy_group: str, updated_at: int,
+    ) -> None:
+        expr = "SET registrationToken = :token, updatedAt = :at"
+        values: dict = {":token": token, ":at": updated_at}
+        if policy_group:
+            expr += ", policyGroup = :pg"
+            values[":pg"] = policy_group
+        self._table().update_item(
+            Key={PARTITION_KEY_ATTRIBUTE: partition_key, SORT_KEY_ATTRIBUTE: sort_key},
+            UpdateExpression=expr,
+            ExpressionAttributeValues=values,
+        )
+
     def record_sandbox(self, recording: SandboxRecording) -> None:
         try:
             self._table().update_item(

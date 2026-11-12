@@ -44,6 +44,7 @@ from control_plane.api.request import (
     principal_for,
     request_body,
     request_method_and_path,
+    extract_policy_group,
 )
 from control_plane.api.routes import (
     SESSION_ID_PARAMETER,
@@ -80,6 +81,7 @@ class OperationRequest:
     body: Mapping[str, Any]
     query_parameters: Mapping[str, str] = field(default_factory=dict)
     session: SessionRecord | None = None
+    authorizer_policy_group: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -288,6 +290,7 @@ class ControlPlaneApi:
             body=request_body(event),
             query_parameters=dict(event.get("queryStringParameters") or {}),
             session=session,
+            authorizer_policy_group=extract_policy_group(event),
         )
 
     def _invoke(self, request: OperationRequest) -> OperationResult:

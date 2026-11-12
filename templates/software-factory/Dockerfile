@@ -11,7 +11,7 @@ FROM public.ecr.aws/amazonlinux/amazonlinux:2023
 WORKDIR /var/task
 
 # Base system packages (same as default image)
-RUN dnf -y --allowerasing install amazon-efs-utils nfs-utils python3.13 git jq iptables iproute tar gzip \
+RUN dnf -y --allowerasing install amazon-efs-utils nfs-utils python3.13 git jq iptables nftables iproute tar gzip \
     && dnf clean all && rm -rf /var/cache/dnf
 RUN python3.13 -m ensurepip --upgrade \
     && python3.13 -m pip install --no-cache-dir --upgrade pip

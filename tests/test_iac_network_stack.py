@@ -468,9 +468,9 @@ def test_each_generation_declares_one_connector_over_its_own_subnets_and_group(
         assert egress["SecurityGroupIds"] == [
             stack.resolve(attachment.security_group.security_group_id)
         ]
-        # IPv4 rather than `DualStack`: IPv6 egress leaves a VPC through its own gateway, and this
+        # DualStack: IPv6 per-VM identification via PP2 requires each MicroVM to have a unique /128.
         # topology's whole argument is about which route tables carry a route.
-        assert egress["NetworkProtocol"] == CONNECTOR_NETWORK_PROTOCOL == "IPv4"
+        assert egress["NetworkProtocol"] == CONNECTOR_NETWORK_PROTOCOL == "DualStack"
 
 
 def test_the_connector_name_carries_the_generation_and_nothing_else(

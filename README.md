@@ -1,3 +1,5 @@
+🎉 **New — Per-group egress policies**: per-user and per-tenant egress rules for [single-tenant](docs/per-tenant-egress-design.md#single-tenant-setup-sigv4) and [multi-tenant](docs/per-tenant-egress-design.md#multi-tenant-setup) deployments.
+
 > **⚠️ Important:** This is sample code for non-production usage. You should work with your security and legal teams to meet your organizational security, regulatory and compliance requirements before deployment.
 
 # AWS Serverless Agent Sandbox
@@ -21,6 +23,7 @@ in your AWS account with policy-controlled egress and multi-tenant isolation.
 - 🤖 **Bedrock proxy** — sandboxes call Amazon Bedrock through a SigV4-resigning proxy
 - 🔍 **Web Search** — agents search the web via Bedrock Web Search with zero egress (no search engine URLs needed)
 - 👥 **Multi-tenant** — isolated data partitions per tenant with Lambda authorizer or Cognito
+- 🎯 **Per-group egress** — different egress rules per user role, tenant, or group — enforced per-VM via IPv6 identification
 - 🔧 **MCP tools** — six tools for agent frameworks (Strands, LangChain, CrewAI) via JSON-RPC
 - 💾 **Persistent workspace** — opt-in S3 Files mount at `/mnt/workspace` that syncs to S3, survives suspend/resume/termination, with per-user isolation via access points
 - 📦 **Python & TypeScript SDKs** — full-featured clients with git, PTY, streaming, and background process support
@@ -387,10 +390,10 @@ npx cdk deploy --all \
 
 When deployed with `-c deploymentProfile=multi-tenant`, the authorizer includes two demo tokens:
 
-| Token | Tenant ID |
-|-------|-----------|
-| `demo-token-tenant-a` | `tenant-a` |
-| `demo-token-tenant-b` | `tenant-b` |
+| Token | Tenant ID | Policy Group |
+|-------|-----------|-------------|
+| `demo-token-tenant-a` | `tenant-a` | `developer` (PyPI + npm + GitHub + Bedrock) |
+| `demo-token-tenant-b` | `tenant-b` | _(default)_ — global default policy |
 
 ```bash
 # Multi-tenant: bearer token (requires -c deploymentProfile=multi-tenant)
@@ -403,8 +406,18 @@ curl --aws-sigv4 "aws:amz:us-east-1:execute-api" \
   https://xxx.execute-api.us-east-1.amazonaws.com/sessions
 ```
 
-To customize the token mapping, set `TENANT_TOKEN_MAP` on the authorizer Lambda:
-`{"my-token": "my-tenant", "another-token": "another-tenant"}`.
+To customize the token mapping, set `TENANT_TOKEN_MAP` on the authorizer Lambda.
+Values can be a string (tenant ID only) or an object with `tenantId` and `policyGroup`:
+
+```json
+{
+  "my-token": {"tenantId": "my-tenant", "policyGroup": "developer"},
+  "another-token": "another-tenant"
+}
+```
+
+Tokens with a string value get no explicit policy group (uses tenant or global default).
+See [Per-Group Egress Policies](#per-group-egress-policies) for details.
 
 ### Session limits
 
@@ -427,6 +440,63 @@ To use Amazon Cognito instead of the demo token authorizer:
 
 1. Create a Cognito User Pool with a custom attribute `custom:tenantId`.
 2. In the CDK stack, replace the `CfnAuthorizer` with a JWT authorizer pointing at
+
+## Per-Group Egress Policies
+
+Different users can have different egress rules. A developer might reach GitHub and
+PyPI while an analyst only reaches PyPI. The proxy enforces this per-session based on
+the user's **policy group**, resolved at session creation.
+
+**How it works:** Every MicroVM gets a unique IPv6 /128 address from the DualStack VPC
+connector. At boot, the VM registers its /128 with the proxy. On every subsequent
+request, the proxy identifies the VM by its IPv6 address (via Proxy Protocol v2) and
+applies the matching egress policy.
+
+### Single-tenant (SigV4)
+
+Tag IAM users or roles with `SandboxEgressPolicy`:
+
+```bash
+aws iam tag-user --user-name alice --tags Key=SandboxEgressPolicy,Value=developer
+aws iam tag-role --role-name DataAnalystRole --tags Key=SandboxEgressPolicy,Value=analyst
+```
+
+The API handler reads the tag at session creation. No tag → global default policy.
+
+### Multi-tenant (Lambda authorizer / Cognito)
+
+The Lambda authorizer returns `policyGroup` in its response context. For Cognito,
+add a `custom:egress_policy` attribute to the user pool schema — the API handler
+reads it from the JWT claims automatically.
+
+See the [Cognito Integration Guide](docs/cognito-auth.md) for setup instructions.
+
+### Policy configuration
+
+Policies are stored in the DynamoDB egress config table. The proxy follows a fallback
+chain: **group → tenant default → global default**.
+
+```bash
+# Global default (applies when no group or tenant policy matches)
+# pk: EGRESS_POLICY — already seeded by CDK
+
+# Group-specific policy (e.g., developers get GitHub)
+aws dynamodb put-item --table-name <EgressConfigTable> --item '{
+  "pk": {"S": "EGRESS_POLICY#GROUP#developer"},
+  "policy": {"S": "{"policyVersion":1,"defaultAction":"deny","bedrock":{"tier":1,"hosts":["bedrock-runtime.us-east-1.amazonaws.com"]},"packages":{"tier":3,"hosts":["pypi.org","files.pythonhosted.org","registry.npmjs.org"]},"github":{"tier":3,"hosts":["github.com","api.github.com"]}}"}
+}'
+
+# Tenant default (applies to all sessions from a tenant without a group policy)
+aws dynamodb put-item --table-name <EgressConfigTable> --item '{
+  "pk": {"S": "EGRESS_POLICY#TENANT#acme-corp"},
+  "policy": {"S": "{"policyVersion":1,"defaultAction":"deny","packages":{"tier":3,"hosts":["pypi.org","files.pythonhosted.org"]}}"}
+}'
+```
+
+📖 **Full details**: [Per-Tenant Egress Design](docs/per-tenant-egress-design.md) —
+covers the architecture, IAM tag resolution, Cognito integration, fallback chain,
+policy format, and operational guide.
+
 
 ## Python SDK
 

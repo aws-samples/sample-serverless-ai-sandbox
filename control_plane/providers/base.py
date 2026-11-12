@@ -136,6 +136,7 @@ class SandboxSpec:
     s3files_filesystem_id: str = ""
     s3files_access_point_id: str = ""
     s3files_mount_target_ip: str = ""
+    registration_token: str = ""  # opaque token for per-tenant IPv6 registration
 
 
 @dataclass(frozen=True)

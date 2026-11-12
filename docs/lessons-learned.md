@@ -58,10 +58,10 @@ for build failures. The API response is useless.
 
 ---
 
-## 3. Per-tenant egress identification via source IP — doesn't work
+## 3. Per-tenant egress identification via source IP — IPv4 doesn't work, IPv6 does
 
-**Problem**: We designed a per-tenant egress policy where the proxy identifies the
-tenant by the MicroVM's source IP. The plan: each MicroVM registers its VPC IP at
+**Problem (IPv4)**: We designed a per-tenant egress policy where the proxy identifies
+the tenant by the MicroVM's source IP. The plan: each MicroVM registers its VPC IP at
 `/run` time, the proxy maps source IP → tenant → policy.
 
 **Root cause**: MicroVMs do NOT have unique IPv4 addresses. All MicroVMs on one
@@ -69,18 +69,25 @@ network connector share the connector ENI's IPv4. The proxy's
 `socket.getpeername()` returns the same IP for every MicroVM on the connector.
 Confirmed by the MicroVM service team.
 
-**What we tried**: Source IP registration at `/run` hook, DynamoDB lookup in the
-proxy. The registration worked but the IPs were identical.
+**Solution (IPv6)**: On a DualStack connector, each MicroVM gets a unique IPv6 /128
+from the VPC subnet CIDR — unforgeable, assigned by the hypervisor. At boot, the
+MicroVM registers its /128 with the proxy using an opaque token (UUID4) sent via a
+CONNECT header during PID 1 initialization. The NLB forwards the real /128 via Proxy
+Protocol v2 on every connection, so the proxy identifies each VM per-request without
+Network Firewall or any additional infrastructure.
 
-**Correct approaches**:
-- **One connector per tenant**: Each tenant gets its own connector with its own ENI
-  and IPv4. Limit: 1,000 connectors/account. Creation is async (~10 min).
-- **IPv6 /128**: DualStack connector gives each MicroVM a unique /128. Requires
-  Network Firewall (~$320/month). Overkill for a reference architecture.
-- **One policy for all**: Current approach. Simplest. Sufficient for most use cases.
+**What didn't work (IPv4)**:
+- Source IP registration at `/run` hook — IPs were identical across VMs
+- One connector per tenant — 1,000 limit, 10-min async creation
 
-**Decision**: Ship with one policy for all. Document connector-per-tenant and IPv6
-as advanced options.
+**What works (IPv6)**:
+- DualStack connector + PP2 + opaque registration token
+- Proxy maps /128 → policyGroup per request (30s DDB cache)
+- Fallback chain: group → tenant default → global default
+- Zero additional cost vs IPv4-only deployment
+
+**Decision**: Per-group egress via IPv6 identification is the default. See
+[per-tenant-egress-design.md](per-tenant-egress-design.md) for the full design.
 
 ---
 

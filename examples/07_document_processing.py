@@ -116,21 +116,22 @@ json.dump(result, sys.stdout, indent=2)
 
 # Bedrock analysis script run inside the sandbox
 ANALYSIS_SCRIPT = r'''
-import http.client, json, os, re, sys
+import http.client, json, os, sys
 
 with open(sys.argv[1]) as f:
     extraction = json.load(f)
 with open(sys.argv[2]) as f:
     document = f.read()
 
+from urllib.parse import urlparse
 proxy_env = os.environ.get("http_proxy", "")
-match = re.match(r"http://([^:]+):(\d+)", proxy_env)
-if not match:
+parsed = urlparse(proxy_env)
+if not parsed.hostname:
     print("Egress proxy not configured — skipping Bedrock analysis", file=sys.stderr)
     json.dump({"extraction": extraction, "ai_analysis": "(proxy not available)"}, sys.stdout, indent=2)
     sys.exit(0)
 
-host, port = match.group(1), int(match.group(2))
+host, port = parsed.hostname, parsed.port or 443
 bedrock_host = os.environ.get("AWS_REGION", "us-east-1")
 bedrock_host = f"bedrock-runtime.{bedrock_host}.amazonaws.com"
 model = "amazon.nova-micro-v1:0"

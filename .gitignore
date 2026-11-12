@@ -56,3 +56,6 @@ docs/feature-parity.md
 
 # Kiro specs (internal)
 .kiro/specs/
+docs/deployment-recovery-plan.md
+docs/ipv6-egress-learnings.md
+docs/ipv6-per-group-egress-roadmap.md

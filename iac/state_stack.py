@@ -108,7 +108,7 @@ class StateStack(cdk.Stack):
             table.add_global_secondary_index(
                 index_name=index.name,
                 partition_key=_attribute(index.partition_key),
-                sort_key=_attribute(index.sort_key),
+                sort_key=_attribute(index.sort_key) if index.sort_key else None,
                 projection_type=_PROJECTION_TYPES[index.projection],
                 # Empty under any projection but INCLUDE, and CDK refuses the pair.
                 non_key_attributes=list(index.non_key_attributes) or None,

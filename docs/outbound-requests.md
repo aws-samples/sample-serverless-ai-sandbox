@@ -83,8 +83,34 @@ client = boto3.client("bedrock-runtime", region_name="us-east-1",
                       endpoint_url="https://bedrock-runtime.egress.internal")
 ```
 
-The proxy's IAM role has `bedrock:InvokeModel` permission. Your sandbox's role has
-an explicit `Deny` on all Bedrock actions.
+The proxy's IAM role has `bedrock:InvokeModel`, `bedrock:Converse`, and
+`bedrock:ConverseStream` permissions on `arn:aws:bedrock:us-east-1::foundation-model/*`.
+
+**Cross-region inference profiles** (e.g., `us.anthropic.claude-fable-5-2`,
+`us.moonshotai.kimi-k3.1`) resolve to foundation models in other regions. To use
+these, add an inline policy to the proxy task role covering all regions:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["bedrock:InvokeModel", "bedrock:Converse", "bedrock:ConverseStream"],
+  "Resource": [
+    "arn:aws:bedrock:*::foundation-model/*",
+    "arn:aws:bedrock:*:ACCOUNT_ID:inference-profile/*"
+  ]
+}
+```
+
+**Data retention**: Some models (Claude Fable 5.x) require `aws_review` data
+retention mode at the account level. Without it, requests return
+`data retention mode 'default' is not available for this model`. Enable it with:
+
+```python
+import boto3
+boto3.client('bedrock').put_account_data_retention(mode='aws_review')
+```
+
+Your sandbox's role has an explicit `Deny` on all Bedrock actions.
 
 ### Tier 2: Token injection (third-party APIs)
 

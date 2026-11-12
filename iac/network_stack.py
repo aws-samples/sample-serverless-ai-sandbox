@@ -111,7 +111,7 @@ CONNECTOR_NAME_PREFIX: Final = "egress-connector-g"
 #: literal, and IPv4 rather than `DualStack` because IPv6 egress leaves a VPC by its own gateway and
 #: this VPC's whole argument is which route tables carry a route.
 CONNECTOR_COMPUTE_RESOURCE_TYPES: Final[tuple[str, ...]] = ("MicroVm",)
-CONNECTOR_NETWORK_PROTOCOL: Final = "IPv4"
+CONNECTOR_NETWORK_PROTOCOL: Final = "DualStack"
 
 #: The service limits on one connector's VPC egress configuration.
 MAX_CONNECTOR_SUBNETS: Final = 16
@@ -272,6 +272,9 @@ class NetworkStack(cdk.Stack):
         }
         self.endpoints = self._interface_endpoints()
         self.gateway_endpoints = self._gateway_endpoints()
+
+        # IPv6 for per-VM identification via PP2
+        self._enable_ipv6()
 
         # Last, so they see everything this stack declares.
         self._require_a_connector_per_generation()
@@ -513,6 +516,39 @@ class NetworkStack(cdk.Stack):
             connector=connector,
             ref=connector.attr_arn,
         )
+
+    def _enable_ipv6(self) -> None:
+        """Add IPv6 /64 CIDRs to connector and proxy subnets.
+
+        Connector subnets need IPv6 for the DualStack connector.
+        Proxy subnets need IPv6 for the dualstack NLB and IPv6 target group.
+
+        """
+        ipv6_cidr = ec2.CfnVPCCidrBlock(self, "Ipv6Cidr", vpc_id=self.vpc.vpc_id, amazon_provided_ipv6_cidr_block=True)
+
+        # Use consistent indices: connector subnets first (matching existing resources
+        # Ipv6connectorg24/25 from previous deploy), then proxy subnets.
+        # Index 4,5 = connector; 6,7 = proxy (avoids collision with existing resources)
+        subnet_index = 4
+        connector_ipv6: list[ec2.CfnSubnetCidrBlock] = []
+
+        for group_name in [_connector_subnet_group(g) for g in self.connector_generations] + [PROXY_SUBNET_GROUP]:
+            for subnet in self.vpc.select_subnets(subnet_group_name=group_name).subnets:
+                cidr_block = cdk.Fn.select(subnet_index, cdk.Fn.cidr(cdk.Fn.select(0, self.vpc.vpc_ipv6_cidr_blocks), 16, "64"))
+                assoc = ec2.CfnSubnetCidrBlock(
+                    self, f"Ipv6{group_name.replace('-','')}{subnet_index}",
+                    subnet_id=subnet.subnet_id,
+                    ipv6_cidr_block=cidr_block,
+                )
+                assoc.add_dependency(ipv6_cidr)
+                if _connector_subnet_group(self.connector_generations[0]) in group_name:
+                    connector_ipv6.append(assoc)
+                subnet_index += 1
+
+        # DualStack connector must wait for IPv6 on its own subnets
+        for res in connector_ipv6:
+            for generation in self.connector_generations:
+                self.attachments[generation].connector.add_dependency(res)
 
     def _interface_endpoints(self) -> dict[str, ec2.InterfaceVpcEndpoint]:
         """The endpoints the design names and the three the fleet needs, in the proxy subnets."""

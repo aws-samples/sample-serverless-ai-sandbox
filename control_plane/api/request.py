@@ -52,6 +52,7 @@ __all__ = [
     "REQUEST_CONTEXT_KEY",
     "TENANT_ATTRIBUTE_FIELD",
     "TENANT_CLAIM_PATH_VAR",
+    "extract_policy_group",
     "principal_for",
     "request_body",
     "request_method_and_path",
@@ -194,6 +195,25 @@ def principal_for(event: Mapping[str, Any]) -> AuthenticatedPrincipal:
     except TenantIdentifierError as exc:
         raise UnauthenticatedRequest(str(exc)) from exc
 
+
+
+
+def extract_policy_group(event: Mapping[str, Any]) -> str:
+    """Extract policyGroup from the authorizer context, if present."""
+    request_context = _mapping(event, REQUEST_CONTEXT_KEY)
+    authorizer = _mapping(request_context, AUTHORIZER_KEY)
+    lambda_context = _mapping(authorizer, "lambda")
+    pg = lambda_context.get("policyGroup")
+    if isinstance(pg, str) and pg:
+        return pg
+    flat_pg = authorizer.get("policyGroup")
+    if isinstance(flat_pg, str) and flat_pg:
+        return flat_pg
+    jwt_claims = _mapping(_mapping(authorizer, "jwt"), "claims")
+    jwt_pg = jwt_claims.get("custom:egress_policy")
+    if isinstance(jwt_pg, str) and jwt_pg:
+        return jwt_pg
+    return ""
 
 def request_method_and_path(event: Mapping[str, Any]) -> tuple[str, str]:
     """Return the HTTP method and raw path of a payload-format-2.0 invocation.

@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import socket
 import ssl
 import sys
 from typing import Final
@@ -66,6 +67,188 @@ _POLICY_CACHE_TTL: Final[float] = float(
 # DynamoDB config table name.
 _CONFIG_TABLE: Final[str] = os.environ.get("EGRESS_CONFIG_TABLE", "")
 
+# Per-tenant egress (IPv6 identification). Both default to empty/shared = disabled.
+_EGRESS_POLICY_MODE: Final[str] = os.environ.get("EGRESS_POLICY", "shared")
+_SESSION_TABLE: Final[str] = os.environ.get("SESSION_TABLE", "")
+
+
+# -- Per-tenant IPv6 identification ------------------------------------------------
+
+def _parse_proxy_protocol_v2(data: bytes) -> tuple[str, bytes]:
+    """Parse a PP2 header and return (source_ip, remaining_data).
+
+    Returns ("", data) if the data doesn't start with the PP2 signature.
+    """
+    import struct
+    import ipaddress
+
+    _PP2_SIG = b"\r\n\r\n\x00\r\nQUIT\n"
+    if len(data) < 16 or data[:12] != _PP2_SIG:
+        return "", data
+
+    addr_len = struct.unpack("!H", data[14:16])[0]
+    header_len = 16 + addr_len
+    if len(data) < header_len:
+        return "", data
+
+    remaining = data[header_len:]
+    family = (data[13] >> 4) & 0x0F
+
+    if family == 1:  # AF_INET
+        src_ip = str(ipaddress.IPv4Address(data[16:20]))
+    elif family == 2:  # AF_INET6
+        src_ip = str(ipaddress.IPv6Address(data[16:32]))
+    else:
+        src_ip = ""
+
+    return src_ip, remaining
+
+
+class _PrependReader:
+    """Wraps an asyncio.StreamReader, prepending buffered leftover data."""
+
+    def __init__(self, prepend: bytes, reader: asyncio.StreamReader) -> None:
+        self._buf = prepend
+        self._reader = reader
+
+    async def readline(self) -> bytes:
+        if self._buf:
+            if b"\n" in self._buf:
+                idx = self._buf.index(b"\n") + 1
+                line, self._buf = self._buf[:idx], self._buf[idx:]
+                return line
+            more = await self._reader.readline()
+            line, self._buf = self._buf + more, b""
+            return line
+        return await self._reader.readline()
+
+    async def read(self, n: int) -> bytes:
+        if self._buf:
+            data, self._buf = self._buf[:n], self._buf[n:]
+            return data
+        return await self._reader.read(n)
+
+    async def readexactly(self, n: int) -> bytes:
+        if self._buf:
+            if len(self._buf) >= n:
+                data, self._buf = self._buf[:n], self._buf[n:]
+                return data
+            needed = n - len(self._buf)
+            data = self._buf + await self._reader.readexactly(needed)
+            self._buf = b""
+            return data
+        return await self._reader.readexactly(n)
+
+
+class _PerTenantResolver:
+    """Maps a source IPv6 /128 to a per-tenant egress policy.
+
+    On IPv4 sources or shared-mode, returns None (use default policy).
+    """
+
+    def __init__(self) -> None:
+        self._ipv6_to_group: dict[str, str] = {}
+        self._ipv6_to_tenant: dict[str, str] = {}
+        self._group_policies: dict[str, tuple[float, "EgressPolicy | None"]] = {}
+        self._enabled = _EGRESS_POLICY_MODE == "per-tenant" and bool(_SESSION_TABLE) and bool(_CONFIG_TABLE)
+
+    def policy_for(self, source_ip: str) -> "EgressPolicy | None":
+        if not self._enabled or ":" not in source_ip:
+            return None
+
+        from egress.policy import EgressPolicy
+
+        group = self._ipv6_to_group.get(source_ip)
+        if group is None:
+            group = self._lookup_group(source_ip)
+            if group is None:
+                return None
+            self._ipv6_to_group[source_ip] = group
+
+        return self._load_group_policy(group)
+
+    def register(self, ipv6: str, token: str, tenant_id: str, policy_group: str) -> None:
+        """Store a /128 → policyGroup mapping from a registration CONNECT."""
+        group = policy_group or tenant_id or "DEFAULT"
+        self._ipv6_to_group[ipv6] = group
+        if tenant_id:
+            self._ipv6_to_tenant[ipv6] = tenant_id
+
+        # Persist ipv6Address back to the session record
+        # The proxy knows the pk/sk from the GSI query result
+        if _SESSION_TABLE and token:
+            try:
+                import boto3 as _b3
+                _table = _b3.resource("dynamodb").Table(_SESSION_TABLE)
+                # Query the token to get pk/sk
+                token_resp = _table.query(
+                    IndexName="registration-token-index",
+                    KeyConditionExpression="registrationToken = :t",
+                    ExpressionAttributeValues={":t": token},
+                    Limit=1,
+                    ProjectionExpression="pk, sk",
+                )
+                items = token_resp.get("Items", [])
+                if items:
+                    _table.update_item(
+                        Key={"pk": items[0]["pk"], "sk": items[0]["sk"]},
+                        UpdateExpression="SET ipv6Address = :ip",
+                        ExpressionAttributeValues={":ip": ipv6},
+                    )
+                    logger.debug("Wrote ipv6Address %s to DDB", ipv6)
+            except Exception:
+                logger.exception("Failed to write ipv6Address to DDB")
+
+    def _lookup_group(self, ipv6: str) -> str | None:
+        try:
+            import boto3
+            table = boto3.resource("dynamodb").Table(_SESSION_TABLE)
+            resp = table.query(
+                IndexName="ipv6-address-index",
+                KeyConditionExpression="ipv6Address = :addr",
+                ExpressionAttributeValues={":addr": ipv6},
+                Limit=1,
+                ProjectionExpression="policyGroup, tenantId",
+            )
+            items = resp.get("Items", [])
+            if not items:
+                return None
+            item = items[0]
+            tenant_id = item.get("tenantId", "")
+            if tenant_id:
+                self._ipv6_to_tenant[ipv6] = tenant_id
+            return item.get("policyGroup") or tenant_id or "DEFAULT"
+        except Exception:
+            logger.exception("IPv6 lookup failed for %s", ipv6)
+            return None
+
+    def _load_group_policy(self, group: str, tenant_id: str = "") -> "EgressPolicy | None":
+        try:
+            import json as _json
+            import boto3
+            from egress.adapters import DDBPolicySource
+            from egress.policy import EgressPolicy
+            table = boto3.resource("dynamodb").Table(_CONFIG_TABLE)
+            # Resolution chain: GROUP#<policyGroup> → TENANT#<tenantId> → global DEFAULT
+            candidates = [f"EGRESS_POLICY#GROUP#{group}"]
+            if tenant_id and tenant_id != group:
+                candidates.append(f"EGRESS_POLICY#TENANT#{tenant_id}")
+            for pk in candidates:
+                resp = table.get_item(Key={"pk": pk})
+                item = resp.get("Item")
+                if item:
+                    policy_str = item.get("policy", "{}")
+                    raw = _json.loads(policy_str) if isinstance(policy_str, str) else policy_str
+                    document = DDBPolicySource._transform(raw)
+                    return EgressPolicy.from_document(document)
+            return None
+        except Exception:
+            logger.exception("Policy load failed for group %s", group)
+            return None
+
+
+_per_tenant_resolver = _PerTenantResolver()
+
 
 def _make_ssl_context() -> ssl.SSLContext:
     return ssl.create_default_context()
@@ -83,7 +266,7 @@ class _ProxyConnection:
     calls the Interceptor, and executes the outcome (forward, tunnel, or deny).
     """
 
-    __slots__ = ("_interceptor", "_botocore_session", "_reader", "_writer")
+    __slots__ = ("_interceptor", "_botocore_session", "_reader", "_writer", "_source_ip")
 
     def __init__(
         self,
@@ -96,12 +279,30 @@ class _ProxyConnection:
         self._writer = writer
         self._botocore_session = botocore_session
         self._interceptor = interceptor
+        peername = writer.get_extra_info("peername", ("", 0))
+        self._source_ip: str = peername[0] if peername else ""
 
     async def handle(self) -> None:
         try:
-            first_line = await asyncio.wait_for(
-                self._reader.readline(), timeout=_IDLE_TIMEOUT
-            )
+            # Try to read PP2 header (2s timeout — safe for health checks that send no data)
+            try:
+                initial = await asyncio.wait_for(self._reader.read(232), timeout=2.0)
+            except (TimeoutError, asyncio.TimeoutError):
+                return  # Health check or idle connection — close cleanly
+            if not initial:
+                return
+
+            pp2_ip, remaining = _parse_proxy_protocol_v2(initial)
+            if pp2_ip:
+                self._source_ip = pp2_ip
+                logger.debug("PP2 source: %s", pp2_ip)
+
+            # Always prepend remaining data — read(232) consumed it from the stream
+            if remaining:
+                prepend = _PrependReader(remaining, self._reader)
+                self._reader = prepend  # type: ignore[assignment]
+
+            first_line = await asyncio.wait_for(self._reader.readline(), timeout=_IDLE_TIMEOUT)
             if not first_line:
                 return
 
@@ -135,8 +336,29 @@ class _ProxyConnection:
     # CONNECT: build TunnelledConnection, let Interceptor decide
     # ------------------------------------------------------------------
 
+
+    def _group_interceptor(self) -> "Interceptor | None":
+        """Return a group-specific interceptor if this source has a per-group policy."""
+        group_policy = _per_tenant_resolver.policy_for(self._source_ip)
+        if group_policy is None:
+            return None
+        # Build a temporary interceptor with the group policy as a static reader
+        from egress.reader import CachedPolicyReader, PolicyCacheSettings
+        from egress.policy import EgressPolicy
+
+        class _StaticReader:
+            def policy(self) -> EgressPolicy:
+                return group_policy
+
+        return Interceptor(
+            reader=_StaticReader(),
+            settings=self._interceptor._settings,
+            signer=self._interceptor._signer,
+            tokens=self._interceptor._tokens,
+        )
     async def _handle_connect(self, target: str) -> None:
-        # PCSR Finding 7b: bound the header drain.
+        # PCSR Finding 7b: bound the header drain. Collect headers for registration.
+        connect_headers: dict[str, str] = {}
         header_count = 0
         while True:
             header_line = await asyncio.wait_for(
@@ -148,10 +370,21 @@ class _ProxyConnection:
             if header_count > _MAX_HEADER_COUNT or len(header_line) > _MAX_HEADER_LINE_SIZE:
                 self._send_error(431, "Request Header Fields Too Large")
                 return
+            decoded = header_line.decode("utf-8", errors="replace").strip()
+            if ":" in decoded:
+                name, _, value = decoded.partition(":")
+                connect_headers[name.strip()] = value.strip()
+
+        # Handle IPv6 registration requests from MicroVM runtime
+        if target.startswith("_register.internal"):
+            await self._handle_registration(connect_headers)
+            return
 
         # Build typed request and let the Interceptor decide.
+        # Per-group: use group-specific policy if the source /128 has one.
+        interceptor = self._group_interceptor() or self._interceptor
         request = TunnelledConnection(connect_target=target)
-        outcome = self._interceptor.intercept(request)
+        outcome = interceptor.intercept(request)
 
         if isinstance(outcome, Denied):
             logger.info("DENY CONNECT %s (reason: %s)", target, outcome.reason.value)
@@ -168,7 +401,7 @@ class _ProxyConnection:
             logger.info("CONNECT %s:%d (set: %s)", host, port, outcome.destination_set)
             try:
                 up_reader, up_writer = await asyncio.wait_for(
-                    asyncio.open_connection(host, port),
+                    asyncio.open_connection(host, port, family=socket.AF_INET),  # IPv4 upstream via NAT
                     timeout=_CONNECT_TIMEOUT,
                 )
             except Exception as exc:
@@ -192,6 +425,58 @@ class _ProxyConnection:
     # ------------------------------------------------------------------
     # Forward proxy: build TerminatedRequest, let Interceptor decide
     # ------------------------------------------------------------------
+
+    async def _handle_registration(self, headers: dict[str, str]) -> None:
+        """Handle a CONNECT _register.internal from the MicroVM runtime.
+
+        The MicroVM sends an opaque registration token. The proxy looks it up
+        in DDB to get the tenant/policy mapping, then stores the /128 → group
+        association.
+        """
+        source = self._source_ip
+        token = headers.get("X-Registration-Token", "")
+
+        if ":" not in source:
+            logger.info("registration from IPv4 %s — ignoring (no IPv6)", source)
+            self._writer.write(b"HTTP/1.1 200 OK\r\n\r\n")
+            await self._writer.drain()
+            return
+
+        if not token:
+            logger.warning("registration from %s — no token", source)
+            self._writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+            await self._writer.drain()
+            return
+
+        # Look up the token in DDB to get tenant/policy info
+        try:
+            import boto3
+            table = boto3.resource("dynamodb").Table(_SESSION_TABLE)
+            resp = table.query(
+                IndexName="registration-token-index",
+                KeyConditionExpression="registrationToken = :t",
+                ExpressionAttributeValues={":t": token},
+                Limit=1,
+                ProjectionExpression="tenantId, policyGroup",
+            )
+            items = resp.get("Items", [])
+            if not items:
+                logger.warning("registration token not found: %s", token[:8])
+                self._writer.write(b"HTTP/1.1 404 Not Found\r\n\r\n")
+                await self._writer.drain()
+                return
+
+            item = items[0]
+            tenant_id = item.get("tenantId", "")
+            policy_group = item.get("policyGroup", "") or tenant_id or "DEFAULT"
+
+            _per_tenant_resolver.register(source, token, tenant_id, policy_group)
+            logger.info("registered IPv6 %s → group %s (token %s)", source, policy_group, token[:8])
+        except Exception:
+            logger.exception("registration failed for %s", source)
+
+        self._writer.write(b"HTTP/1.1 200 OK\r\n\r\n")
+        await self._writer.drain()
 
     async def _handle_forward(self, method: str, url: str) -> None:
         parsed = urlparse(url)
@@ -243,7 +528,8 @@ class _ProxyConnection:
             path=path,
             headers=headers,
         )
-        outcome = self._interceptor.intercept(request)
+        interceptor = self._group_interceptor() or self._interceptor
+        outcome = interceptor.intercept(request)
 
         if isinstance(outcome, Denied):
             logger.info("DENY forward %s %s%s (reason: %s)", method, host, path, outcome.reason.value)
@@ -281,7 +567,7 @@ class _ProxyConnection:
         try:
             ssl_ctx = _make_ssl_context()
             up_reader, up_writer = await asyncio.wait_for(
-                asyncio.open_connection(upstream_host, port, ssl=ssl_ctx),
+                asyncio.open_connection(upstream_host, port, ssl=ssl_ctx, family=socket.AF_INET),  # IPv4 upstream via NAT
                 timeout=_CONNECT_TIMEOUT,
             )
         except Exception as exc:
@@ -526,7 +812,7 @@ async def _run_server() -> None:
         conn = _ProxyConnection(reader, writer, session, interceptor)
         await conn.handle()
 
-    server = await asyncio.start_server(_on_connect, "0.0.0.0", LISTEN_PORT)  # nosec B104
+    server = await asyncio.start_server(_on_connect, ["0.0.0.0", "::"], LISTEN_PORT)  # nosec B104  # IPv4 + IPv6
     addrs = ", ".join(str(s.getsockname()) for s in server.sockets)
     logger.info("egress proxy listening on %s (policy from DDB table: %s)", addrs, _CONFIG_TABLE)
 

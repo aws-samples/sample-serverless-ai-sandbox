@@ -77,6 +77,7 @@ from control_plane.api.admission import (
     SessionAdmissionRejected,
     admit_session_creation,
 )
+from control_plane.api.request import extract_policy_group
 from control_plane.api.handlers import (
     NotImplementedOperations,
     OperationRequest,
@@ -554,7 +555,7 @@ class CreationOperations(NotImplementedOperations):
         get-or-create create branch can share the former without inheriting a `201`/`202` shape
         that says nothing about which of R6.15's two actions happened.
         """
-        created = self.create(request.principal, request.body)
+        created = self.create(request.principal, request.body, authorizer_policy_group=request.authorizer_policy_group)
         status = (
             HTTPStatus.CREATED
             if created.connection is not None
@@ -571,6 +572,7 @@ class CreationOperations(NotImplementedOperations):
         *,
         write: SessionRowWriter | None = None,
         affinity_key_digest: str | None = None,
+        authorizer_policy_group: str = "",
     ) -> CreatedSession:
         """Validate, write the complete row, start the execution, wait, and report.
 
@@ -596,7 +598,8 @@ class CreationOperations(NotImplementedOperations):
             body, provider=self.provider, policy=self.policy
         )
         record = self._pending_record(
-            principal, body, limits, affinity_key_digest=affinity_key_digest
+            principal, body, limits, affinity_key_digest=affinity_key_digest,
+            authorizer_policy_group=authorizer_policy_group,
         )
 
         # Step 2 (R6.6). Complete, and before any execution exists.
@@ -617,6 +620,53 @@ class CreationOperations(NotImplementedOperations):
 
     # -- the record, and the two writes -----------------------------------------------------
 
+
+    def _resolve_policy_group(self, principal: AuthenticatedPrincipal, authorizer_policy_group: str = "") -> str:
+        """Derive the egress policy group from the caller's identity.
+
+        Resolution order:
+        1. Multi-tenant: authorizer context (future — policyGroup from JWT/Lambda authorizer)
+        2. Single-tenant SigV4: IAM tag ``SandboxEgressPolicy`` on the user or role
+        3. Fallback: ``"default"``
+
+        The IAM call adds ~50ms to session creation. The result is written to the DDB record
+        so the proxy can read it — the proxy never calls IAM.
+        """
+        import os
+        if os.environ.get("EGRESS_POLICY") != "per-tenant":
+            return "default"
+
+        # 1. Authorizer context (multi-tenant: Lambda authorizer or JWT claim)
+        if authorizer_policy_group:
+            return authorizer_policy_group
+
+        # 2. IAM tag (single-tenant SigV4)
+        arn = principal.caller_identity
+        try:
+            import boto3
+            iam = boto3.client("iam")
+
+            if ":user/" in arn:
+                user_name = arn.split(":user/")[-1]
+                tags = iam.list_user_tags(UserName=user_name).get("Tags", [])
+            elif ":role/" in arn:
+                role_name = arn.split(":role/")[-1]
+                tags = iam.list_role_tags(RoleName=role_name).get("Tags", [])
+            elif ":assumed-role/" in arn:
+                # arn:aws:sts::ACCT:assumed-role/ROLE_NAME/SESSION_NAME
+                role_name = arn.split(":assumed-role/")[-1].split("/")[0]
+                tags = iam.list_role_tags(RoleName=role_name).get("Tags", [])
+            else:
+                return "default"
+
+            for tag in tags:
+                if tag["Key"] == "SandboxEgressPolicy":
+                    return tag["Value"]
+        except Exception:
+            pass  # IAM call failed — fall back to default
+
+        return "default"
+
     def _pending_record(
         self,
         principal: AuthenticatedPrincipal,
@@ -624,6 +674,7 @@ class CreationOperations(NotImplementedOperations):
         limits: AdmittedLimits,
         *,
         affinity_key_digest: str | None = None,
+        authorizer_policy_group: str = "",
     ) -> SessionRecord:
         """Build the complete Session row, in `PENDING`, before anything is written.
 
@@ -667,6 +718,7 @@ class CreationOperations(NotImplementedOperations):
             workspace_affinity_key=str(body.get("affinityKey", "")) if body.get("persistence") else "",
             principal_id=principal.caller_identity,
             image_ref=str(body.get("imageRef", "")),
+            policy_group=self._resolve_policy_group(principal, authorizer_policy_group=authorizer_policy_group),
             state_reason="created",
             affinity_key_digest=affinity_key_digest,
         )

@@ -121,7 +121,9 @@ Routes:
 ### Lambda Authorizer (ControlPlaneStack — multi-tenant only)
 
 Validates bearer tokens against `TENANT_TOKEN_MAP` (environment variable, JSON object).
-Returns `{ isAuthorized: true, context: { tenantId, principalId } }` or rejects.
+Returns `{ isAuthorized: true, context: { tenantId, principalId, policyGroup } }` or rejects.
+Token values can be a string (tenant ID only) or an object with `tenantId` and `policyGroup`
+for [per-group egress policies](per-tenant-egress-design.md).
 
 - No hardcoded fallback tokens — absent/invalid `TENANT_TOKEN_MAP` denies all
 - Token comparison uses `hmac.compare_digest` (constant-time)
@@ -132,6 +134,7 @@ Returns `{ isAuthorized: true, context: { tenantId, principalId } }` or rejects.
 Handles all 8 routes. Core responsibilities:
 
 - **Tenant resolution**: In multi-tenant mode, reads `tenantId` from the authorizer context. In single-tenant mode, uses the fixed `operator` tenant.
+- **Policy group resolution**: Reads `policyGroup` from authorizer context (multi-tenant), IAM tag `SandboxEgressPolicy` (single-tenant), or Cognito JWT claim `custom:egress_policy`. Falls back to `"default"`. See [per-group egress](per-tenant-egress-design.md).
 - **Session CRUD**: Reads/writes DynamoDB session records. Every query is scoped to the caller's tenant via `LeadingKeys` IAM condition on the `SessionDataAccessRole`.
 - **Orchestration**: Starts Step Functions executions for CreateSession. The execution manages the full MicroVM lifecycle.
 - **Connection credentials**: Mints JWE tokens for data-path authentication. The private key exists only in the MicroVM's memory.
