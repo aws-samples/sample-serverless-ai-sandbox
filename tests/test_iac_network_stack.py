@@ -514,12 +514,15 @@ def test_every_connector_carries_the_operator_role_lambda_needs(
         else str(arn).endswith(expected_suffix)
         for arn in managed_arns
     ), f"Expected managed policy ending with {expected_suffix!r} in {managed_arns}"
-    # No inline ec2 statements should remain — all permissions come from the managed policy.
+    # No inline ec2 statements should remain — all connector permissions come from the
+    # managed policy. ModifySubnetAttribute is excluded: it belongs to the AwsCustomResource
+    # that enables AssignIpv6AddressOnCreation on proxy subnets, not to the connector operator.
     inline_ec2_statements = [
         statement
         for policy in _properties(template, "AWS::IAM::Policy").values()
         for statement in policy["PolicyDocument"]["Statement"]
         if _ec2_actions(statement)
+        and statement.get("Action") != "ec2:ModifySubnetAttribute"
     ]
     assert inline_ec2_statements == [], (
         f"Inline ec2: statements should not exist when using the managed policy: "
