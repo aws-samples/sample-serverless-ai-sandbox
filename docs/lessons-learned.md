@@ -224,6 +224,7 @@ tools then work correctly against the same MicroVM.
 ---
 
 ## 12. Uid-based network filtering on a Firecracker guest: iptables-owner and nftables both fail
+
 **Problem**: Code running as an unprivileged user could open a raw TCP connection to an NFS
 mount target that a root helper process (efs-proxy) legitimately uses from the same network
 namespace. A security-group rule could not close it, because the helper needs the same path.
@@ -241,6 +242,7 @@ designing around them. FIB rules may be the only uid-based filter.
 ---
 
 ## 13. Disable unprivileged user namespaces in the guest
+
 **Problem**: An unprivileged user could `unshare(CLONE_NEWUSER)` and receive a full capability
 set inside the new namespace without holding any capability.
 **Root cause**: Creating a user namespace needs no privilege, so dropping capabilities does not
@@ -252,6 +254,7 @@ nf_tables and io_uring local-privilege-escalation code reachable.
 ---
 
 ## 14. Container escape tricks work inside a guest too: `core_pattern`
+
 **Problem**: With root in the guest and `CAP_SYS_ADMIN`, writing a pipe handler to
 `/proc/sys/kernel/core_pattern` and crashing a process runs the handler as root in the guest's
 init mount namespace, exposing platform agents and credentials there. Reasoning that a
@@ -269,6 +272,7 @@ by shipping one control per image.
 ---
 
 ## 15. Do not let a privileged PID 1 execute binaries that untrusted root can replace
+
 **Problem**: User code running as root overwrote `/usr/bin/mountpoint`, called the
 (unauthenticated) lifecycle hooks, and PID 1 then ran the replaced binary with full capabilities.
 **Root cause**: PID 1 shelled out to binaries on a filesystem the untrusted code could write.
@@ -282,6 +286,7 @@ unauthenticated by design (the platform proxy is the authenticated boundary); do
 ---
 
 ## 16. Blocking IMDS with iptables is bypassable and can break suspend/resume
+
 **Problem**: Guest user code could read the execution role's credentials from the instance
 metadata service. An iptables DROP on 169.254.169.254 blocked the SDK too; root with
 `CAP_NET_ADMIN` could delete the rule; and after dropping that capability, resume of an
@@ -296,6 +301,7 @@ residual risk. An `aws:SourceVpce` condition would also block legitimate calls.
 ---
 
 ## 17. Adding IPv6 to a CDK L2 VPC: `AssignIpv6AddressOnCreation` on a fresh deploy (CDK #28843)
+
 **Problem**: A fresh deploy failed with "Target group requires ipv6 addresses, but subnet only
 supports ipv4". The subnets had IPv6 CIDR blocks but Fargate ENIs got no IPv6 address.
 **Root cause**: `AssignIpv6AddressOnCreation` was never set by the stack. It had been set once
@@ -313,6 +319,7 @@ flag must be unset before the IPv6 CIDR can be disassociated.
 ---
 
 ## 18. Identifying a VM at a proxy over IPv6: NLB, `preserve_client_ip` and Proxy Protocol v2
+
 **Problem**: The proxy needs each VM's unique IPv6 /128, but it logged the load balancer's own
 IPv4 address for IPv6 clients.
 **Root cause**: `preserve_client_ip` does not carry an IPv6 client address to an IPv4 target.
@@ -327,6 +334,7 @@ entry 19). Only a dual-stack connector yields a VPC-routable /128 (a single-stac
 ---
 
 ## 19. Dual-stack Fargate proxy checklist
+
 **Problem**: A cluster of independent faults, each initially mistaken for another.
 **Fixes**:
 1. `net.ipv6.ip_unprivileged_port_start` does not exist (only `net.ipv4.*`, which covers all
@@ -346,6 +354,7 @@ entry 19). Only a dual-stack connector yields a VPC-routable /128 (a single-stac
 ---
 
 ## 20. Never derive policy identity from anything the guest sends
+
 **Problem**: Several designs let the proxy learn which tenant a VM belongs to from a header, a
 self-reported IP or tenant fields passed into the guest. All are spoofable or unreliable.
 Entry 3 covers the /128 plus token bootstrap; this entry covers the surrounding rules.
@@ -359,6 +368,7 @@ toggled tag on one user.
 ---
 
 ## 21. MicroVM image identity: full ARN, immutable names, one image per runtime change
+
 **Problem**: Deploys failed with `Malformed ARN` or `No active version found`.
 **Root cause**: The build script printed `name:1`; the API needs the full image ARN as
 `imageIdentifier`. Names cannot be reused (409; delete and wait, or version the names). The
@@ -369,6 +379,7 @@ must match the name used for the deploy.
 ---
 
 ## 22. MicroVM runtime gotchas
+
 - Application stdout and stderr are not forwarded without an execution role that allows
   CloudWatch Logs writes, so a failing `/run` hook shows nothing. Write debug JSON to a file and
   read it back, or add the role.
