@@ -14,6 +14,21 @@ Or install directly:
 npm install ./sdk/typescript
 ```
 
+## Authentication
+
+The SDK supports two auth modes:
+
+- **Bearer token (multi-tenant)** — pass `token` to `SandboxClient`. Works out of the box.
+- **SigV4 (single-tenant, the default deployment profile)** — ⚠️ **not bundled.** The
+  TypeScript SDK ships a `SigV4Auth` stub that throws, to avoid bundling the AWS signing
+  dependencies. Against a single-tenant deployment you must either:
+  1. install `@aws-sdk/client-sts` and `@smithy/signature-v4` and provide a custom `Auth`
+     implementation to `SandboxClient`, or
+  2. use a multi-tenant deployment with a bearer `token`.
+
+  The Python SDK, by contrast, performs SigV4 natively with no extra packages. If you are on a
+  single-tenant deployment and want zero-config auth, prefer the Python SDK.
+
 ## Quick Start
 
 ```typescript
