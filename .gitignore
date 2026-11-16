@@ -59,3 +59,9 @@ docs/feature-parity.md
 docs/deployment-recovery-plan.md
 docs/ipv6-egress-learnings.md
 docs/ipv6-per-group-egress-roadmap.md
+
+# Lessons-learned extraction pipeline (scratch + consolidated, not for sharing)
+lessons-pipeline/
+
+# Product-knowledge extraction pipeline
+knowledge-pipeline/
