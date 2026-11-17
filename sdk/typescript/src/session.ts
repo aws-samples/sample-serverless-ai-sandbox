@@ -10,15 +10,30 @@ import type { Auth } from './auth.js';
 import {
   SandboxConnection,
   SandboxProtocolError,
+  ProcessHandle,
+  PtySession,
   type CommandResult,
   type FileEntry,
+  type FileInfo,
+  type Metrics,
+  type FileEvent,
   type ConnectionDescriptor,
 } from './sandbox.js';
+import { GitOperations } from './git.js';
 
-export type { CommandResult, FileEntry };
+export type { CommandResult, FileEntry, FileInfo, Metrics, FileEvent };
+export { ProcessHandle, PtySession };
 
 /** Default polling interval when waiting for a sandbox to become ready (ms). */
 const POLL_INTERVAL_MS = 2_000;
+
+/**
+ * Default readiness probe schedule (ms between attempts). Chosen from measured time-to-serve
+ * (~2-4s warm, ~11s cold): tight early to catch the common warm start without overshoot,
+ * backing off to 5s for cold. The last value repeats. Pass a number for a flat interval, or
+ * your own array if you know your workload's timing.
+ */
+const DEFAULT_POLL_SCHEDULE_MS: number[] = [1_000, 2_000, 3_000, 5_000];
 
 /** Session record shape returned by the Control Plane. */
 export interface SessionData {
@@ -111,30 +126,80 @@ export class SandboxSession {
    */
   async waitReady(options?: {
     timeout?: number;
-    pollInterval?: number;
+    pollInterval?: number | number[];
   }): Promise<void> {
     const timeout = options?.timeout ?? 120_000;
-    const pollInterval = options?.pollInterval ?? POLL_INTERVAL_MS;
+    const scheduleOpt = options?.pollInterval ?? DEFAULT_POLL_SCHEDULE_MS;
+    const schedule =
+      typeof scheduleOpt === 'number'
+        ? [scheduleOpt]
+        : scheduleOpt.length > 0
+          ? scheduleOpt
+          : [POLL_INTERVAL_MS];
+    const intervalAt = (n: number): number =>
+      schedule[Math.min(n, schedule.length - 1)] ?? POLL_INTERVAL_MS;
     const deadline = Date.now() + timeout;
-
-    while (Date.now() < deadline) {
-      await this.refresh();
-      if (this.isReady) {
-        return;
-      }
+    const remaining = (): number => deadline - Date.now();
+    const raiseIfTerminal = (): void => {
       const state = this.lifecycleState;
       if (state === 'TERMINATED' || state === 'FAILED') {
+        const reason = (this.#sessionData['stateReason'] as string | undefined) ?? '';
         throw new Error(
-          `Session ${this.#sessionId} entered terminal state '${state}' ` +
-            'while waiting for the sandbox to become ready.',
+          `Session ${this.#sessionId} entered terminal state '${state}' while starting` +
+            (reason ? `: ${reason}` : '') +
+            '.',
         );
       }
-      await sleep(pollInterval);
+    };
+
+    // Phase 1: wait for a connection descriptor to appear. It is published early (while the
+    // sandbox is still starting), so its presence no longer means the endpoint serves.
+    let phase1 = 0;
+    while (!this.isReady) {
+      raiseIfTerminal();
+      if (remaining() <= 0) {
+        throw new Error(
+          `Session ${this.#sessionId} had no connection descriptor within ${timeout}ms. ` +
+            `Last state: ${this.lifecycleState}`,
+        );
+      }
+      await sleep(Math.min(intervalAt(phase1), Math.max(0, remaining())));
+      phase1 += 1;
+      await this.refresh();
+    }
+
+    // Phase 2: probe the endpoint directly until it accepts a request. The Lambda MicroVM
+    // platform does not forward traffic to the sandbox until its /run hook (which performs the
+    // in-guest hardening) has returned 200, so a probe that succeeds means the sandbox is both
+    // hardened and serving. Only then does this resolve, so caller code never touches a
+    // non-serving endpoint.
+    let probes = 0;
+    let lastError: unknown;
+    while (remaining() > 0) {
+      try {
+        await this.#getSandbox().execute(['test', '-e', '/'], { timeoutSeconds: 5 });
+        return; // the endpoint served a request: hardened and ready
+      } catch (err) {
+        lastError = err;
+        probes += 1;
+        // Every few failed probes, confirm the session did not fail, so a genuine startup
+        // failure surfaces as a clear error rather than a blind timeout.
+        if (probes % 3 === 0) {
+          try {
+            await this.refresh();
+          } catch {
+            // transient control-plane read; keep probing
+          }
+          raiseIfTerminal();
+        }
+        if (remaining() <= 0) break;
+        await sleep(Math.min(intervalAt(probes - 1), Math.max(0, remaining())));
+      }
     }
 
     throw new Error(
-      `Sandbox for session ${this.#sessionId} was not ready within ${timeout}ms. ` +
-        `Last state: ${this.lifecycleState}`,
+      `Sandbox for session ${this.#sessionId} did not start serving within ${timeout}ms ` +
+        `(last probe error: ${String(lastError)}).`,
     );
   }
 
@@ -310,6 +375,108 @@ export class SandboxSession {
         `S3 upload failed: ${putResp.status} ${putResp.statusText}`,
       );
     }
+  }
+
+  // ------------------------------------------------------------------
+  // Filesystem helpers
+  // ------------------------------------------------------------------
+
+  /** Check if a file or directory exists inside the sandbox. */
+  async fileExists(path: string): Promise<boolean> {
+    return this.#sandboxRequest(() => this.#getSandbox().fileExists(path));
+  }
+
+  /** Get metadata (size, mtime, permissions, type) about a file or directory. */
+  async fileInfo(path: string): Promise<FileInfo> {
+    return this.#sandboxRequest(() => this.#getSandbox().fileInfo(path));
+  }
+
+  /** Create a directory inside the sandbox (with parents by default). */
+  async makeDir(path: string, options?: { parents?: boolean }): Promise<void> {
+    return this.#sandboxRequest(() => this.#getSandbox().makeDir(path, options));
+  }
+
+  /** Rename or move a file or directory inside the sandbox. */
+  async renameFile(oldPath: string, newPath: string): Promise<void> {
+    return this.#sandboxRequest(() => this.#getSandbox().renameFile(oldPath, newPath));
+  }
+
+  /** List files recursively to a given depth (default: 3). */
+  async listFilesRecursive(path: string = '/tmp', options?: { depth?: number }): Promise<FileEntry[]> {
+    return this.#sandboxRequest(() => this.#getSandbox().listFilesRecursive(path, options));
+  }
+
+  /** Write multiple files in sequence. */
+  async writeFiles(
+    files: Array<[string, string | Uint8Array]>,
+    options?: { mode?: number },
+  ): Promise<void> {
+    return this.#sandboxRequest(() => this.#getSandbox().writeFiles(files, options));
+  }
+
+  // ------------------------------------------------------------------
+  // Background and streaming execution
+  // ------------------------------------------------------------------
+
+  /** Start a background process and return a {@link ProcessHandle}. */
+  async executeBackground(
+    command: string | string[],
+    options?: { cwd?: string; env?: Record<string, string> },
+  ): Promise<ProcessHandle> {
+    return this.#sandboxRequest(() => this.#getSandbox().executeBackground(command, options));
+  }
+
+  /** Execute a command with streaming stdout/stderr callbacks. A string command is run via
+   *  the shell (pipes, redirects work); an array is passed as argv. */
+  async executeStream(
+    command: string | string[],
+    options?: {
+      cwd?: string;
+      env?: Record<string, string>;
+      timeoutSeconds?: number;
+      onStdout?: (chunk: Uint8Array) => void;
+      onStderr?: (chunk: Uint8Array) => void;
+    },
+  ): Promise<CommandResult> {
+    const argv = typeof command === 'string' ? ['sh', '-c', command] : command;
+    return this.#sandboxRequest(() => this.#getSandbox().executeStream(argv, options));
+  }
+
+  // ------------------------------------------------------------------
+  // Metrics, PTY, and file watching
+  // ------------------------------------------------------------------
+
+  /** Get the sandbox's current memory, disk, and load snapshot. */
+  async getMetrics(): Promise<Metrics> {
+    return this.#sandboxRequest(() => this.#getSandbox().getMetrics());
+  }
+
+  /** Open a simplified pseudo-terminal session that wraps {@link execute}. */
+  openPty(options?: { cols?: number; rows?: number; shell?: string; cwd?: string }): PtySession {
+    return this.#getSandbox().openPty(options);
+  }
+
+  /** Watch a directory for file changes using polling. Returns on the first batch of changes
+   *  or when the timeout elapses. */
+  async watchFiles(
+    path: string,
+    options?: {
+      recursive?: boolean;
+      onChange?: (event: FileEvent) => void;
+      pollInterval?: number;
+      timeout?: number;
+    },
+  ): Promise<FileEvent[]> {
+    return this.#getSandbox().watchFiles(path, options);
+  }
+
+  // ------------------------------------------------------------------
+  // Git operations
+  // ------------------------------------------------------------------
+
+  /** Git operations wrapper for this sandbox. */
+  get git(): GitOperations {
+    return new GitOperations(this.#getSandbox());
   }
 
   // ------------------------------------------------------------------

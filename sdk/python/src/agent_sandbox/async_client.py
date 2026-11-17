@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -40,6 +41,9 @@ from agent_sandbox.sandbox import (
 
 
 _POLL_INTERVAL: float = 3.0
+#: Default readiness probe schedule (seconds). See the sync SDK for the measured rationale
+#: (~2-4s warm, ~11s cold). The last value repeats. Pass a float for flat, or a sequence.
+_DEFAULT_POLL_SCHEDULE = (1.0, 2.0, 3.0, 5.0)
 
 
 @dataclass
@@ -70,16 +74,76 @@ class AsyncSandboxSession:
         self._session_data = data
         self.lifecycle_state = data.get("lifecycleState", "UNKNOWN")
 
-    async def wait_ready(self, *, timeout: float = 120, poll_interval: float = _POLL_INTERVAL) -> None:
+    async def wait_ready(
+        self,
+        *,
+        timeout: float = 120,
+        poll_interval: float | Sequence[float] = _DEFAULT_POLL_SCHEDULE,
+    ) -> None:
+        """Block until the sandbox endpoint is serving, by probing it directly.
+
+        See the sync SDK for the full rationale: the connection descriptor is published early
+        (while the sandbox is still starting), so readiness is established by probing the endpoint
+        rather than by the lifecycle state. The platform does not forward traffic to the sandbox
+        until its /run hook (the in-guest hardening) has returned 200, so a successful probe means
+        the sandbox is both hardened and serving.
+        """
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            await self.refresh()
-            if self.is_ready:  # nosemgrep: is-function-without-parentheses
-                return
+        schedule = (
+            [float(poll_interval)]
+            if isinstance(poll_interval, (int, float))
+            else [float(x) for x in poll_interval]
+        ) or [float(_POLL_INTERVAL)]
+
+        def _interval(n: int) -> float:
+            return schedule[min(n, len(schedule) - 1)]
+
+        def _remaining() -> float:
+            return deadline - time.monotonic()
+
+        def _raise_if_terminal() -> None:
             if self.lifecycle_state in ("TERMINATED", "FAILED"):
-                raise RuntimeError(f"Session {self.session_id} is {self.lifecycle_state}")
-            await asyncio.sleep(poll_interval)
-        raise TimeoutError(f"Session {self.session_id} not ready after {timeout}s")
+                reason = (self._session_data or {}).get("stateReason", "")
+                raise RuntimeError(
+                    f"Session {self.session_id} entered terminal state "
+                    f"{self.lifecycle_state!r} while starting{': ' + reason if reason else ''}."
+                )
+
+        # Phase 1: wait for a connection descriptor (published early; not gated on RUNNING).
+        phase1 = 0
+        while self.connection is None:
+            _raise_if_terminal()
+            if _remaining() <= 0:
+                raise TimeoutError(
+                    f"Session {self.session_id} had no connection descriptor within {timeout}s."
+                )
+            await asyncio.sleep(min(_interval(phase1), max(0.0, _remaining())))
+            phase1 += 1
+            await self.refresh()
+
+        # Phase 2: probe the endpoint until it accepts a request.
+        probes = 0
+        last_error: Exception | None = None
+        while _remaining() > 0:
+            try:
+                await asyncio.to_thread(self._get_sandbox().file_exists, "/")
+                return
+            except Exception as exc:  # noqa: BLE001 — not serving yet; keep probing
+                last_error = exc
+                probes += 1
+                if probes % 3 == 0:
+                    try:
+                        await self.refresh()
+                    except Exception:  # nosec B110 — transient CP read; keep probing
+                        pass
+                    _raise_if_terminal()
+                if _remaining() <= 0:
+                    break
+                await asyncio.sleep(min(_interval(probes - 1), max(0.0, _remaining())))
+        raise TimeoutError(
+            f"Sandbox for session {self.session_id} did not start serving within {timeout}s "
+            f"(last probe error: {last_error})."
+        )
 
     async def suspend(self) -> dict[str, Any]:
         return await self._cp_request("POST", f"/sessions/{self.session_id}/suspend")

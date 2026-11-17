@@ -11,8 +11,19 @@ export type { SandboxClientOptions, CreateSessionOptions, ResolveSessionOptions 
 export { SandboxSession } from './session.js';
 export type { SessionData, SandboxSessionOptions } from './session.js';
 
-export { SandboxConnection } from './sandbox.js';
-export type { CommandResult, FileEntry, ConnectionDescriptor, SandboxConnectionOptions } from './sandbox.js';
+export { SandboxConnection, ProcessHandle, PtySession } from './sandbox.js';
+export type {
+  CommandResult,
+  FileEntry,
+  FileInfo,
+  Metrics,
+  FileEvent,
+  ConnectionDescriptor,
+  SandboxConnectionOptions,
+} from './sandbox.js';
+
+export { GitOperations } from './git.js';
+export type { GitStatus } from './git.js';
 
 export { BearerAuth, SigV4Auth } from './auth.js';
 export type { Auth } from './auth.js';

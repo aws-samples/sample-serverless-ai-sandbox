@@ -276,7 +276,9 @@ class GitOperations:
         deleted: list[str] = []
         untracked: list[str] = []
 
-        for line in result.stdout.strip().split("\n"):
+        # Do not strip the whole block: an unstaged-modified line's status column is a leading
+        # space (" M path"), and a global strip would shift the filename slice on the first line.
+        for line in result.stdout.split("\n"):
             if not line or len(line) < 3:
                 continue
             code = line[:2]

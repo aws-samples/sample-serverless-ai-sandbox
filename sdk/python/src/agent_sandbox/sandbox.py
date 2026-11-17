@@ -324,6 +324,7 @@ class ProcessHandle:
     sandbox: SandboxConnection
     stdout_path: str
     stderr_path: str
+    rc_path: str = ""
 
     def is_running(self) -> bool:
         """Return ``True`` if the process is still running."""
@@ -395,21 +396,25 @@ class ProcessHandle:
         CommandResult
             The final stdout, stderr, and exit code.
         """
-        # Use a shell wait loop: poll until process ends or timeout
-        result = self.sandbox.execute(
+        # Poll until the process exits, then read the exit code the launcher wrote to rc_path.
+        # The POSIX `wait` builtin can't be used: each execute() is a fresh shell where the pid is
+        # not a child, so `wait` would always report 127.
+        self.sandbox.execute(
             [
                 "sh", "-c",
                 f"i=0; while kill -0 {self.pid} 2>/dev/null && [ $i -lt {timeout} ]; do "  # nosemgrep: string-concat-in-list — intentional
-                f"sleep 1; i=$((i+1)); done; "
-                f"wait {self.pid} 2>/dev/null; echo $?",
+                f"sleep 1; i=$((i+1)); done",
             ],
             timeout_seconds=timeout + 5,
         )
-        exit_code_str = result.stdout.strip().split("\n")[-1]
-        try:
-            exit_code = int(exit_code_str)
-        except ValueError:
-            exit_code = -1
+        exit_code = -1
+        if self.rc_path:
+            rc = self.sandbox.execute(["cat", self.rc_path], timeout_seconds=5)
+            if rc.exit_code == 0:
+                try:
+                    exit_code = int(rc.stdout.strip())
+                except ValueError:
+                    exit_code = -1
 
         return CommandResult(
             exit_code=exit_code,
@@ -697,7 +702,9 @@ class SandboxConnection:
     def list_files_recursive(self, path: str = "/tmp", *, depth: int = 3) -> list[FileEntry]:  # nosec B108
         """List files recursively to a given depth.
 
-        Uses ``find`` to traverse the directory tree up to *depth* levels.
+        Recurses over the ``fs.list`` wire op rather than shelling out to ``find``, so it works on
+        minimal images with no findutils. Each returned entry's ``name`` is a full path. *depth*
+        counts levels below *path*: ``depth=1`` is the immediate children.
 
         Parameters
         ----------
@@ -711,28 +718,22 @@ class SandboxConnection:
         list[FileEntry]
             All entries found, with ``kind`` derived from the ``find`` type indicator.
         """
-        result = self.execute(
-            ["find", path, "-maxdepth", str(depth), "-printf", "%y %s %p\\n"],
-            timeout_seconds=10,
-        )
-        if result.exit_code != 0:
-            raise RuntimeError(f"find failed: {result.stderr}")
+        out: list[FileEntry] = []
 
-        type_map = {"f": "file", "d": "directory", "l": "symlink"}
-        entries: list[FileEntry] = []
-        for line in result.stdout.strip().split("\n"):
-            if not line:
-                continue
-            parts = line.split(None, 2)
-            if len(parts) < 3:
-                continue
-            kind = type_map.get(parts[0], "other")
+        def _walk(directory: str, remaining: int) -> None:
             try:
-                size = int(parts[1])
-            except ValueError:
-                size = 0
-            entries.append(FileEntry(name=parts[2], kind=kind, size=size))
-        return entries
+                entries = self.list_files(directory)
+            except Exception:  # nosec B110 — an unreadable dir is skipped, not fatal
+                return
+            base = directory.rstrip("/")
+            for entry in entries:
+                full = f"{base}/{entry.name}"
+                out.append(FileEntry(name=full, kind=entry.kind, size=entry.size))
+                if entry.kind == "directory" and remaining > 1:
+                    _walk(full, remaining - 1)
+
+        _walk(path, depth)
+        return out
 
     # ------------------------------------------------------------------
     # Batch file write
@@ -797,11 +798,15 @@ class SandboxConnection:
         tag = os.urandom(4).hex()
         stdout_path = f"/tmp/.bg_stdout_{tag}"  # nosec B108
         stderr_path = f"/tmp/.bg_stderr_{tag}"  # nosec B108
+        rc_path = f"/tmp/.bg_rc_{tag}"  # nosec B108
 
+        # Append the exit-code capture inside the backgrounded shell so wait() can read the real
+        # status (the `wait` builtin can't, since each execute() is a separate, non-parent shell).
+        inner = f"trap 'echo $? > {rc_path}' EXIT; {cmd_str}"
         result = self.execute(
             [
                 "sh", "-c",
-                f"nohup sh -c '{cmd_str}' > {stdout_path} 2> {stderr_path} & echo $!",
+                f"nohup sh -c {shlex.quote(inner)} > {stdout_path} 2> {stderr_path} & echo $!",
             ],
             cwd=cwd,
             env=env,
@@ -818,6 +823,7 @@ class SandboxConnection:
             sandbox=self,
             stdout_path=stdout_path,
             stderr_path=stderr_path,
+            rc_path=rc_path,
         )
 
     # ------------------------------------------------------------------
@@ -913,6 +919,8 @@ class SandboxConnection:
 
         stdout_parts: list[bytes] = []
         stderr_parts: list[bytes] = []
+        got_stdout_chunk = False
+        got_stderr_chunk = False
         exit_code = -1
 
         headers = {self.auth_header_name: self.auth_header_value}
@@ -940,10 +948,12 @@ class SandboxConnection:
                         data = str(data).encode()
                     if stream_id == 0:
                         stdout_parts.append(data)
+                        got_stdout_chunk = True
                         if on_stdout:
                             on_stdout(data)
                     else:
                         stderr_parts.append(data)
+                        got_stderr_chunk = True
                         if on_stderr:
                             on_stderr(data)
 
@@ -951,14 +961,16 @@ class SandboxConnection:
                     exit_code = msg_body.get(1, -1)
                     if not isinstance(exit_code, int):
                         exit_code = -1
-                    # Collect any final stdout/stderr from the result
+                    # Append the result's stdout/stderr only if it was NOT already delivered as
+                    # chunks — some servers send the complete output both as exec.chunk events and
+                    # again in exec.result, which would otherwise double it.
                     final_stdout = msg_body.get(2, b"")
                     final_stderr = msg_body.get(3, b"")
-                    if isinstance(final_stdout, bytes) and final_stdout:
+                    if isinstance(final_stdout, bytes) and final_stdout and not got_stdout_chunk:
                         stdout_parts.append(final_stdout)
                         if on_stdout:
                             on_stdout(final_stdout)
-                    if isinstance(final_stderr, bytes) and final_stderr:
+                    if isinstance(final_stderr, bytes) and final_stderr and not got_stderr_chunk:
                         stderr_parts.append(final_stderr)
                         if on_stderr:
                             on_stderr(final_stderr)
@@ -993,12 +1005,14 @@ class SandboxConnection:
         stdout_path = f"/tmp/.stream_stdout_{tag}"  # nosec B108
         stderr_path = f"/tmp/.stream_stderr_{tag}"  # nosec B108
 
+        rc_path = f"/tmp/.stream_rc_{tag}"  # nosec B108
         cmd_str = " ".join(shlex.quote(arg) for arg in command)
+        inner = f"trap 'echo $? > {rc_path}' EXIT; {cmd_str}"
         # Start the command in background with output redirected
         start_result = self.execute(
             [
                 "sh", "-c",
-                f"nohup sh -c '{cmd_str}' > {stdout_path} 2> {stderr_path} & echo $!",
+                f"nohup sh -c {shlex.quote(inner)} > {stdout_path} 2> {stderr_path} & echo $!",
             ],
             cwd=cwd,
             env=env,
@@ -1052,20 +1066,21 @@ class SandboxConnection:
         except Exception:
             full_stderr = b""
 
-        # Get exit code
-        wait_result = self.execute(
-            ["sh", "-c", f"wait {pid} 2>/dev/null; echo $?"],
-            timeout_seconds=5,
-        )
-        try:
-            exit_code = int(wait_result.stdout.strip().split("\n")[-1])
-        except ValueError:
-            exit_code = -1
+        # Get exit code from the rc file the launcher wrote (the `wait` builtin can't see the pid
+        # from this separate shell).
+        rc = self.execute(["cat", rc_path], timeout_seconds=5)
+        exit_code = -1
+        if rc.exit_code == 0:
+            try:
+                exit_code = int(rc.stdout.strip())
+            except ValueError:
+                exit_code = -1
 
         # Cleanup temp files
         try:
             self.delete_file(stdout_path)
             self.delete_file(stderr_path)
+            self.delete_file(rc_path)
         except Exception:  # nosec B110
             pass
 
@@ -1226,24 +1241,19 @@ class SandboxConnection:
         import time
 
         events: list[FileEvent] = []
-        depth_args = [] if recursive else ["-maxdepth", "1"]
+        base = path.rstrip("/")
 
         def _snapshot() -> dict[str, int]:
-            """Take a snapshot of files with their sizes."""
-            result = self.execute(
-                ["find", path, *depth_args, "-type", "f", "-printf", "%s %p\\n"],
-                timeout_seconds=10,
+            """Take a snapshot of files with their sizes (size as a change proxy)."""
+            entries = (
+                self.list_files_recursive(path, depth=64) if recursive else self.list_files(path)
             )
             files: dict[str, int] = {}
-            for line in result.stdout.strip().split("\n"):
-                if not line:
+            for entry in entries:
+                if entry.kind != "file":
                     continue
-                parts = line.split(None, 1)
-                if len(parts) == 2:
-                    try:
-                        files[parts[1]] = int(parts[0])  # size as proxy for change
-                    except ValueError:
-                        pass
+                full = entry.name if recursive else f"{base}/{entry.name}"
+                files[full] = entry.size
             return files
 
         # Take initial snapshot

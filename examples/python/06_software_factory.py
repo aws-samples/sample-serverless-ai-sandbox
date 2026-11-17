@@ -45,13 +45,15 @@ def main() -> None:
 
         # 1. Verify the software-factory image tools
         print("=== Tool versions ===")
-        for cmd, label in [
-            ("node --version", "Node.js"),
-            ("opencode --version 2>&1 | head -1", "opencode"),
-            ("rg --version | head -1", "ripgrep"),
-            ("cdk --version 2>&1 | head -1", "CDK CLI"),
+        # opencode and the CDK CLI are self-extracting wrappers that unpack a
+        # bundled binary on first invocation, so give them a generous timeout.
+        for cmd, label, timeout in [
+            ("node --version", "Node.js", 15),
+            ("opencode --version 2>&1 | head -1", "opencode", 60),
+            ("rg --version | head -1", "ripgrep", 15),
+            ("cdk --version 2>&1 | head -1", "CDK CLI", 60),
         ]:
-            r = session.execute(cmd, timeout_seconds=15)
+            r = session.execute(cmd, timeout_seconds=timeout)
             print(f"  {label}: {r.stdout.strip()}")
 
         # 2. Start the Bedrock proxy adapter

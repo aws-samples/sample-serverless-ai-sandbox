@@ -117,7 +117,7 @@ export AWS_REGION="us-east-1"
 # Do NOT set SANDBOX_TOKEN — that's for multi-tenant only
 # If it's set from a previous session: unset SANDBOX_TOKEN
 
-python3 examples/01_hello_sandbox.py
+python3 examples/python/01_hello_sandbox.py
 ```
 
 > **Common gotcha**: If you previously tested with multi-tenant and have

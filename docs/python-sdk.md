@@ -60,12 +60,35 @@ Represents one session. Wraps lifecycle operations.
 | Method / Property | Description |
 |-------------------|-------------|
 | `session_id` | The session identifier. |
-| `wait_ready(timeout=60)` | Poll until RUNNING and connection is available. |
+| `wait_ready(timeout=120, poll_interval=(1,2,3,5))` | Block until the sandbox endpoint is actually serving (direct probe). See **Readiness and probe cadence** below. |
 | `connection` | The `SandboxConnection` for executing commands. |
 | `suspend()` | Suspend the session (preserves memory + disk). |
 | `resume()` | Resume a suspended session. |
 | `terminate()` | Terminate the session and release resources. |
 | `refresh_connection()` | Mint a fresh connection credential. |
+
+#### Readiness and probe cadence
+
+`wait_ready()` does **not** just poll the control plane for a lifecycle state. The connection
+descriptor is published early (while the sandbox is still starting), so `wait_ready()`:
+
+1. waits briefly for the descriptor to appear, then
+2. **probes the sandbox endpoint directly** until it accepts a request.
+
+It returns only once the endpoint is actually serving. The AWS Lambda MicroVM platform does not
+forward traffic to a sandbox until its `/run` hook (the in-guest hardening) has returned, so a
+successful probe also means the sandbox is hardened — your code never touches a non-serving or
+un-hardened endpoint.
+
+The probe cadence is tunable via `poll_interval`:
+
+- a **float** for a flat interval: `session.wait_ready(poll_interval=2)`
+- a **sequence** for a graduated backoff (the last value repeats):
+  `session.wait_ready(poll_interval=(1, 2, 3, 5))` — the default
+
+The default `(1, 2, 3, 5)` seconds is tuned from measured start times (~2-4 s warm, ~11 s cold):
+tight early to catch warm starts without overshoot, backing off for cold. Pass your own schedule if
+you know your workload's timing.
 
 ### SandboxConnection
 

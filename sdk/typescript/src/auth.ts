@@ -3,11 +3,16 @@
  * Authentication strategies for the Control Plane API.
  *
  * Two modes:
- * - **SigV4**: signs requests with the caller's current AWS credentials.
- *   Requires `@aws-sdk/client-sts` and related packages — not bundled.
+ * - **SigV4**: signs requests with the caller's current AWS credentials (resolved from the
+ *   standard Node provider chain). Used by single-tenant deployments whose API uses `AWS_IAM`.
  * - **Bearer token**: attaches `Authorization: Bearer <token>` for multi-tenant
  *   deployments that use a Lambda authorizer instead of `AWS_IAM`.
  */
+
+import { SignatureV4 } from '@smithy/signature-v4';
+import { Hash } from '@smithy/hash-node';
+import { HttpRequest } from '@smithy/protocol-http';
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 
 /** Authentication strategy applied to outgoing Control Plane requests. */
 export interface Auth {
@@ -19,18 +24,15 @@ export interface Auth {
   ): Promise<Record<string, string>>;
 }
 
-/** Service name used for SigV4 signing against API Gateway. */
-const SERVICE_NAME = 'execute-api';
-
 /**
- * Signs requests using AWS SigV4.
+ * Signs Control Plane requests with AWS SigV4 for `execute-api`.
  *
- * This is a stub — the TypeScript SDK does not bundle `@aws-sdk/signature-v4`.
- * Install `@aws-sdk/client-sts` and related packages, or use {@link BearerAuth}
- * for multi-tenant deployments.
+ * Credentials come from the standard Node provider chain (environment, shared config/credentials,
+ * SSO, container, and IMDS), mirroring the Python SDK's reliance on botocore's default resolution.
  */
 export class SigV4Auth implements Auth {
   readonly #region: string;
+  #signer: SignatureV4 | null = null;
 
   constructor(region: string) {
     this.#region = region;
@@ -40,16 +42,37 @@ export class SigV4Auth implements Auth {
     return this.#region;
   }
 
+  #getSigner(): SignatureV4 {
+    if (this.#signer === null) {
+      this.#signer = new SignatureV4({
+        service: 'execute-api',
+        region: this.#region,
+        credentials: fromNodeProviderChain(),
+        sha256: Hash.bind(null, 'sha256'),
+      });
+    }
+    return this.#signer;
+  }
+
   async apply(
-    _method: string,
-    _url: string,
-    _headers: Record<string, string>,
-    _body?: Uint8Array | null,
+    method: string,
+    url: string,
+    headers: Record<string, string>,
+    body?: Uint8Array | null,
   ): Promise<Record<string, string>> {
-    throw new Error(
-      'SigV4Auth requires @aws-sdk/client-sts and @smithy/signature-v4. ' +
-        'Install those packages and provide a custom Auth implementation, or use BearerAuth.',
-    );
+    const parsed = new URL(url);
+    const request = new HttpRequest({
+      method,
+      protocol: parsed.protocol,
+      hostname: parsed.hostname,
+      port: parsed.port ? Number(parsed.port) : undefined,
+      path: parsed.pathname,
+      query: Object.fromEntries(parsed.searchParams.entries()),
+      headers: { ...headers, host: parsed.host },
+      body: body ?? undefined,
+    });
+    const signed = await this.#getSigner().sign(request);
+    return signed.headers;
   }
 }
 
