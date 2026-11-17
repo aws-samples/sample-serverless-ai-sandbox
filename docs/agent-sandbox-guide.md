@@ -175,7 +175,7 @@ session = client.create_session(
 ```
 
 Images must already be built (see `templates/` for available templates).
-Use `examples/08_per_session_image.py` to inspect what's installed in any image.
+Use `examples/python/08_per_session_image.py` to inspect what's installed in any image.
 
 ## Network and Egress
 

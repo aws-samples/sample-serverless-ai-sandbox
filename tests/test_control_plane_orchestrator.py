@@ -341,12 +341,17 @@ class Harness:
         return self.store.row(seated_record())
 
     def forward_path(self) -> None:
-        """Provision, claim, await readiness, publish: the four tasks a creation waits on."""
+        """Provision, claim, publish, confirm: the four forward tasks a creation path runs.
+
+        Publish now precedes the confirm step (AWAIT_READY): the credential is published onto the
+        row (STARTING) before readiness, then the confirm step advances STARTING -> RUNNING once the
+        provider reports the Sandbox is serving.
+        """
         for task in (
             OrchestratorState.PROVISION,
             OrchestratorState.CLAIM_SANDBOX,
-            OrchestratorState.AWAIT_READY,
             OrchestratorState.PUBLISH_CREDENTIAL,
+            OrchestratorState.AWAIT_READY,
         ):
             self.run(task)
 
@@ -723,21 +728,31 @@ def test_a_second_session_claiming_one_sandbox_is_refused_and_the_duplicate_dies
 # --- readiness -------------------------------------------------------------------------------------
 
 
-def test_an_earlier_report_is_mirrored_and_the_ready_one_is_left_to_publication() -> (
-    None
-):
-    """R6.7 for the states before readiness; the `RUNNING` write belongs to the credential."""
-    setup = harness(reports=(SandboxState.STARTING, SandboxState.RUNNING))
+def test_publish_reaches_starting_and_the_confirm_step_advances_to_running() -> None:
+    """Publish is early: the credential and STARTING are written before readiness, and the confirm
+    step (AWAIT_READY) advances STARTING -> RUNNING once the provider reports the Sandbox serving.
+
+    This replaces the old "mirror the earlier report, leave RUNNING to publication" behaviour: the
+    credential no longer waits for readiness, and the confirm step does not mirror intermediate
+    provider reports (that would move the row backwards out of STARTING)."""
+    setup = harness(
+        reports=(
+            SandboxState.STARTING,
+            SandboxState.RUNNING,
+            SandboxState.RUNNING,
+            SandboxState.RUNNING,
+        )
+    )
     setup.run(OrchestratorState.PROVISION)
     setup.run(OrchestratorState.CLAIM_SANDBOX)
 
-    readiness = setup.run(OrchestratorState.AWAIT_READY)
-
-    assert readiness == {"attempts": 2, "sandboxState": SandboxState.RUNNING.value}
-    assert setup.row().lifecycle_state is LifecycleState.STARTING
-    assert setup.slept == [1]
-
     setup.run(OrchestratorState.PUBLISH_CREDENTIAL)
+    assert setup.row().lifecycle_state is LifecycleState.STARTING
+    assert setup.row().connection is not None
+
+    readiness = setup.run(OrchestratorState.AWAIT_READY)
+    assert readiness["sandboxState"] == SandboxState.RUNNING.value
+    assert readiness["lifecycleState"] == LifecycleState.RUNNING.value
     assert setup.row().lifecycle_state is LifecycleState.RUNNING
 
 

@@ -657,7 +657,7 @@ STATE_MACHINE: Final[Mapping[OrchestratorState, StateNode]] = {
     # is preserved: the collision is caught by name and routed to `RecordFailed`, whose reason carries
     # the ledger's own account of whether the duplicate was terminated, and which reaches `Cleanup`.
     OrchestratorState.CLAIM_SANDBOX: TaskState(
-        next_state=OrchestratorState.AWAIT_READY,
+        next_state=OrchestratorState.PUBLISH_CREDENTIAL,
         result_path="$.claim",
         comment="conditional write on H#provider#sandboxId (R11.1, R11.10)",
         retriers=(_TRANSIENT,),
@@ -670,14 +670,14 @@ STATE_MACHINE: Final[Mapping[OrchestratorState, StateNode]] = {
         ),
     ),
     OrchestratorState.AWAIT_READY: TaskState(
-        next_state=OrchestratorState.PUBLISH_CREDENTIAL,
+        next_state=OrchestratorState.WAIT_FOR_LIFECYCLE,
         result_path="$.readiness",
-        comment="poll provider.describe until the /run hook has returned 200 (R7.8)",
+        comment="low-frequency startup confirm: advance STARTING->RUNNING on serve, fail on tear-down (R7.8 safety net; credential already published)",
         retriers=(_TRANSIENT,),
         catchers=(_RECORD_THE_FAILURE,),
     ),
     OrchestratorState.PUBLISH_CREDENTIAL: TaskState(
-        next_state=OrchestratorState.WAIT_FOR_LIFECYCLE,
+        next_state=OrchestratorState.AWAIT_READY,
         result_path="$.connection",
         comment="mint and publish the credential onto the Session row (R6.12)",
         retriers=(_TRANSIENT,),

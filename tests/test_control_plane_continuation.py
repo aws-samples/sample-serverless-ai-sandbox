@@ -138,8 +138,8 @@ def test_the_replacement_restores_the_declared_set_and_the_outgoing_credential_i
 
     setup.run(OrchestratorState.PROVISION)
     setup.run(OrchestratorState.CLAIM_SANDBOX)
-    setup.run(OrchestratorState.AWAIT_READY)
     setup.run(OrchestratorState.PUBLISH_CREDENTIAL)
+    setup.run(OrchestratorState.AWAIT_READY)
 
     replacement = setup.row()
     assert replacement.generation == outgoing.generation + 1

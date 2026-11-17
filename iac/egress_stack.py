@@ -335,7 +335,10 @@ class EgressStack(cdk.Stack):
                                 ],
                                 "note": "AL2023 system package repos (dnf)",
                             },
-                            "allowed": [],
+                            "allowed": [
+                                "github.com",
+                                "codeload.github.com",
+                            ],
                         })},
                     },
                     "ConditionExpression": "attribute_not_exists(pk)",

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
 from urllib.parse import urljoin
@@ -32,6 +33,11 @@ __all__ = ["SandboxSession", "CommandResult", "FileEntry", "FileEvent", "FileInf
 
 #: Default polling interval when waiting for a sandbox to become ready.
 _POLL_INTERVAL: Final = 2.0
+#: Default readiness probe schedule (seconds between attempts), chosen from measured
+#: time-to-serve: ~2-4s warm, ~11s cold. Tight early to catch the common warm case without
+#: overshoot, backing off to 5s for cold. The last value repeats. Pass a float for a flat
+#: interval, or your own sequence if you know your workload's timing.
+_DEFAULT_POLL_SCHEDULE: Final = (1.0, 2.0, 3.0, 5.0)
 
 
 @dataclass(slots=True)
@@ -90,39 +96,106 @@ class SandboxSession:
         """Fetch the latest session state from the Control Plane."""
         self.session_data = self._cp_request("GET", f"/sessions/{self.session_id}")
 
-    def wait_ready(self, *, timeout: float = 120, poll_interval: float = _POLL_INTERVAL) -> None:
-        """Block until the sandbox has a connection descriptor.
+    def wait_ready(
+        self,
+        *,
+        timeout: float = 120,
+        poll_interval: float | Sequence[float] = _DEFAULT_POLL_SCHEDULE,
+    ) -> None:
+        """Block until the sandbox endpoint is actually serving requests.
+
+        Readiness is established by probing the sandbox endpoint directly, not by trusting the
+        Control Plane's lifecycle state. This matters because the connection descriptor is now
+        published early (while the sandbox is still starting), so "a descriptor exists" no longer
+        means "the endpoint serves". The two phases are:
+
+        1. Wait briefly for a connection descriptor to appear on the session record. With the
+           early-publish Control Plane this is near-immediate; the wait also tolerates an older
+           Control Plane that only publishes at readiness.
+        2. Probe the endpoint until it accepts a request. The Lambda MicroVM platform does not
+           forward traffic to the sandbox until its ``/run`` hook (which performs the in-guest
+           hardening) has returned HTTP 200, so a probe that succeeds means the sandbox is both
+           hardened and serving. Only then does this return, so caller code never touches a
+           non-serving endpoint.
 
         Parameters
         ----------
         timeout:
             Maximum seconds to wait before raising ``TimeoutError``.
         poll_interval:
-            Seconds between polls (default: 2).
+            Seconds between attempts. A float for a flat interval, or a sequence of
+            intervals (the last value repeats) for a graduated backoff. Default:
+            ``(1, 2, 3, 5)`` — tight early for the common ~2-4s warm start, backing off
+            to 5s for cold starts.
 
         Raises
         ------
         TimeoutError
-            If the sandbox is not ready within *timeout* seconds.
+            If the sandbox does not start serving within *timeout* seconds.
         RuntimeError
-            If the session enters a terminal state (``TERMINATED`` or ``FAILED``).
+            If the session enters a terminal state (``TERMINATED`` or ``FAILED``) while starting;
+            the recorded reason is included.
         """
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            self.refresh()
-            if self.is_ready:  # nosemgrep: is-function-without-parentheses — @property
-                return
+        schedule = (
+            [float(poll_interval)]
+            if isinstance(poll_interval, (int, float))
+            else [float(x) for x in poll_interval]
+        ) or [float(_POLL_INTERVAL)]
+
+        def _interval(n: int) -> float:
+            return schedule[min(n, len(schedule) - 1)]
+
+        def _remaining() -> float:
+            return deadline - time.monotonic()
+
+        def _raise_if_terminal() -> None:
             state = self.lifecycle_state
             if state in ("TERMINATED", "FAILED"):
+                reason = self.session_data.get("stateReason", "")
                 raise RuntimeError(
-                    f"Session {self.session_id} entered terminal state {state!r} "
-                    f"while waiting for the sandbox to become ready."
+                    f"Session {self.session_id} entered terminal state {state!r} while "
+                    f"starting{': ' + reason if reason else ''}."
                 )
-            time.sleep(poll_interval)  # nosemgrep: arbitrary-sleep — polling loop by design
+
+        # Phase 1: a connection descriptor must exist before the endpoint can be probed.
+        phase1 = 0
+        while not self.is_ready:  # nosemgrep: is-function-without-parentheses — @property
+            _raise_if_terminal()
+            if _remaining() <= 0:
+                raise TimeoutError(
+                    f"Session {self.session_id} had no connection descriptor within {timeout}s. "
+                    f"Last state: {self.lifecycle_state}"
+                )
+            time.sleep(min(_interval(phase1), max(0.0, _remaining())))  # nosemgrep: arbitrary-sleep — bounded wait
+            phase1 += 1
+            self.refresh()
+
+        # Phase 2: probe the endpoint until it accepts a request.
+        probes = 0
+        last_error: Exception | None = None
+        while _remaining() > 0:
+            try:
+                self._get_sandbox().file_exists("/")
+                return  # the endpoint served a request: hardened and ready
+            except Exception as exc:  # noqa: BLE001 — not serving yet; keep probing
+                last_error = exc
+                probes += 1
+                # Every few failed probes, confirm the session did not fail, so a genuine startup
+                # failure surfaces as a clear error rather than a blind timeout.
+                if probes % 3 == 0:
+                    try:
+                        self.refresh()
+                    except Exception:  # nosec B110 — transient CP read; keep probing
+                        pass
+                    _raise_if_terminal()
+                if _remaining() <= 0:
+                    break
+                time.sleep(min(_interval(probes - 1), max(0.0, _remaining())))  # nosemgrep: arbitrary-sleep — bounded probe loop
 
         raise TimeoutError(
-            f"Sandbox for session {self.session_id} was not ready within {timeout}s. "
-            f"Last state: {self.lifecycle_state}"
+            f"Sandbox for session {self.session_id} did not start serving within {timeout}s "
+            f"(last probe error: {last_error})."
         )
 
     def suspend(self) -> dict[str, Any]:

@@ -77,12 +77,28 @@ Represents one session.
 | Method / Property | Returns | Description |
 |-------------------|---------|-------------|
 | `sessionId` | `string` | The session identifier |
-| `waitReady(timeoutMs?)` | `void` | Poll until RUNNING |
+| `waitReady({timeout?, pollInterval?})` | `void` | Block until the endpoint is actually serving (direct probe). See **Readiness and probe cadence** below. |
 | `connection` | `SandboxConnection` | The connection for operations |
 | `suspend()` | `void` | Suspend (preserves state) |
 | `resume()` | `void` | Resume from suspension |
 | `terminate()` | `void` | Terminate and release resources |
 | `refreshConnection()` | `ConnectionDescriptor` | Mint a fresh credential |
+
+#### Readiness and probe cadence
+
+`waitReady()` establishes readiness by **probing the sandbox endpoint directly**, not by polling a
+lifecycle state. The connection descriptor is published early, so `waitReady()` waits for it, then
+probes the endpoint until it accepts a request, returning only once the sandbox is actually serving.
+The platform does not forward traffic until the sandbox's `/run` hook (in-guest hardening) has
+returned, so a successful probe also means the sandbox is hardened.
+
+Tune the cadence via `pollInterval`:
+
+- a **number** (ms) for a flat interval: `await session.waitReady({ pollInterval: 2000 });`
+- an **array** (ms) for graduated backoff (the last value repeats):
+  `await session.waitReady({ pollInterval: [1000, 2000, 3000, 5000] });` — the default
+
+The default `[1000, 2000, 3000, 5000]` is tuned from measured start times (~2-4 s warm, ~11 s cold).
 
 ### SandboxConnection
 

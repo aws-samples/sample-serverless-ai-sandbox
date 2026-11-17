@@ -165,6 +165,7 @@ __all__ = [
     "MAX_STATE_REASON_LENGTH",
     "PROVISIONING_REASON",
     "PUBLICATION_REASON",
+    "STARTUP_CONFIRMED_REASON",
     "CredentialPublication",
     "OrchestrationInput",
     "OrchestrationInputError",
@@ -200,8 +201,20 @@ PROVISIONING_REASON: Final = "the orchestration is provisioning the Sandbox"
 
 #: The `stateReason` of `STARTING → RUNNING`, which is the transition publication is part of (R6.12).
 PUBLICATION_REASON: Final = (
-    "the /run hook returned 200 and the connection credential is published"
+    "the connection credential is published; the sandbox is starting"
 )
+
+#: The `stateReason` of the confirm step's `STARTING -> RUNNING` advance, recorded once the
+#: provider reports the Sandbox is serving (the /run hook returned 200). A constant for the same
+#: reason PUBLICATION_REASON is.
+STARTUP_CONFIRMED_REASON: Final = (
+    "the sandbox is serving: the /run hook has returned 200"
+)
+
+#: How many times publish_credential re-attempts the mint while the endpoint URL is not yet
+#: reported by the provider. This is the seconds-scale endpoint-only wait (guard #1): it is NOT a
+#: readiness poll, it only waits for the endpoint to exist so a working descriptor is published.
+_ENDPOINT_WAIT_ATTEMPTS: Final = 10
 
 #: The `stateReason` a completed teardown records.
 CLEANUP_REASON: Final = "terminated by the Session_Orchestrator; release_check reported nothing allocated (R10.9)"
@@ -844,14 +857,23 @@ class SessionOrchestrator:
 
             state = status.state
             if state is SandboxState.RUNNING:
-                return {"attempts": attempt, "sandboxState": state.value}
+                self._advance(
+                    record, state=LifecycleState.RUNNING, reason=STARTUP_CONFIRMED_REASON
+                )
+                return {
+                    "attempts": attempt,
+                    "sandboxState": state.value,
+                    "lifecycleState": LifecycleState.RUNNING.value,
+                }
             if GOVERNING_BRANCHES[state] is GovernanceDecision.TEAR_DOWN:
                 raise SandboxStartupFailed(
                     record.session_id,
                     state,
                     status.state_reason or f"the provider reported {state.value}",
                 )
-            self.reconciler.reconcile(self._record(invocation), status)
+            # The row is already STARTING with a credential published (publish_credential ran
+            # first), so an intermediate provider report (PENDING/STARTING) needs no mirror here;
+            # mirroring PENDING would move the row backwards out of STARTING.
             if attempt < attempts:
                 self.sleep(self.settings.readiness_interval_seconds)
         raise ReadinessNotReached(record.session_id, state, attempts)
@@ -869,7 +891,7 @@ class SessionOrchestrator:
         side effect of the readiness wait: it is the one step the creating handler is waiting on.
         """
         record = self._record(invocation)
-        connection = self.issuer.issue(record)
+        connection = self._issue_with_endpoint_wait(record)
         published_at = self._now()
         self.store.publish_connection(
             CredentialPublication(
@@ -879,13 +901,37 @@ class SessionOrchestrator:
                 published_at=published_at,
             )
         )
-        self._advance(record, state=LifecycleState.RUNNING, reason=PUBLICATION_REASON)
+        # STARTING, not RUNNING: the credential is now on the row (so the client can begin
+        # probing the endpoint directly), but the /run hook may not have returned 200 yet. The
+        # confirm step (await_ready) advances STARTING -> RUNNING once the provider reports the
+        # Sandbox is serving. The platform does not forward client traffic to the VM until /run
+        # returns 200, so publishing early cannot expose an unhardened VM.
+        self._advance(record, state=LifecycleState.STARTING, reason=PUBLICATION_REASON)
         return {
             "publishedAt": published_at,
             "expiresAt": connection.expires_at,
             "ports": list(connection.ports),
-            "lifecycleState": LifecycleState.RUNNING.value,
+            "lifecycleState": LifecycleState.STARTING.value,
         }
+
+    def _issue_with_endpoint_wait(self, record: SessionRecord) -> ConnectionDescriptor:
+        """Mint the connection credential, waiting briefly for the endpoint URL to exist.
+
+        `ConnectionIssuer.issue` refuses only terminal Sandboxes, not not-yet-ready ones, so it can
+        be called right after provisioning. The one thing it needs that may lag is the endpoint URL,
+        which the provider raises a `ValueError` about when absent. This retries only that case, a
+        bounded seconds-scale wait for the endpoint (guard #1), so a descriptor is never published
+        without a working endpoint. Every other error (terminal Sandbox, no issuable credential)
+        propagates unchanged.
+        """
+        for attempt in range(1, _ENDPOINT_WAIT_ATTEMPTS + 1):
+            try:
+                return self.issuer.issue(record)
+            except ValueError as exc:
+                if "endpoint" in str(exc).lower() and attempt < _ENDPOINT_WAIT_ATTEMPTS:
+                    self.sleep(self.settings.readiness_interval_seconds)
+                    continue
+                raise
 
     # -- callback-based lifecycle wait (replaces the polling loop) ---------------------------
 
